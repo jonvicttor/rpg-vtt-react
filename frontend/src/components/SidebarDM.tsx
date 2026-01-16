@@ -1,8 +1,11 @@
 import React, { useState } from 'react';
 import Soundboard from './Soundboard';
-import Chat from './Chat';
+import Chat, { ChatMessage } from './Chat'; 
 import { Entity, MonsterPreset } from '../App';
 import EditEntityModal from './EditEntityModal';
+
+// --- IMPORTANDO AS REGRAS ---
+import { getLevelFromXP, getNextLevelXP } from '../utils/gameRules';
 
 export interface InitiativeItem {
   id: number;
@@ -10,13 +13,21 @@ export interface InitiativeItem {
   value: number;
 }
 
+const MONSTER_LIST: MonsterPreset[] = [
+  { name: 'Lobo', hp: 11, ac: 13, image: '/tokens/lobo.png' },
+  { name: 'Goblin', hp: 7, ac: 15, image: '/tokens/goblin.png' },
+  { name: 'Esqueleto', hp: 13, ac: 13, image: '/tokens/skeleton.png' },
+  { name: 'Orc', hp: 15, ac: 13, image: '/tokens/orc.png' },
+  { name: 'Bandido', hp: 11, ac: 12, image: '/tokens/bandido.png' },
+  { name: 'Zumbi', hp: 22, ac: 8, image: '/tokens/zumbi.png' }
+];
+
 interface SidebarDMProps {
   entities: Entity[];
   onUpdateHP: (id: number, change: number) => void;
   onAddEntity: (type: 'enemy' | 'player', name: string, preset?: MonsterPreset) => void;
   onDeleteEntity: (id: number) => void;
   onEditEntity: (id: number, updates: Partial<Entity>) => void;
-  
   isFogMode: boolean;
   onToggleFogMode: () => void;
   onResetFog: () => void;
@@ -26,7 +37,6 @@ interface SidebarDMProps {
   onSyncFog: () => void;
   onSaveGame: () => void;
   onChangeMap: (mapUrl: string) => void;
-
   initiativeList: InitiativeItem[];
   activeTurnId: number | null;
   onAddToInitiative: (entity: Entity) => void;
@@ -34,95 +44,168 @@ interface SidebarDMProps {
   onNextTurn: () => void;
   onClearInitiative: () => void;
   onSortInitiative: () => void;
-
   targetEntityIds: number[];
   attackerId: number | null;
-  onSetTarget: (id: number | null, multiSelect?: boolean) => void;
-  
+  onSetTarget: (id: number | number[] | null, multiSelect?: boolean) => void;
   onToggleCondition: (id: number, condition: string) => void;
-
-  // --- NOVO: PROPS DE AOE ---
   activeAoE: 'circle' | 'cone' | 'cube' | null;
   onSetAoE: (type: 'circle' | 'cone' | 'cube' | null) => void;
+  chatMessages: ChatMessage[];
+  onSendMessage: (text: string) => void;
+  onSetAttacker: (id: number | null) => void;
+  aoeColor: string;
+  onSetAoEColor: (color: string) => void;
+  onOpenCreator: (type: 'player' | 'enemy') => void;
+  onAddXP?: (id: number, amount: number) => void;
 }
 
-const EntityControlRow = ({ entity, onUpdateHP, onDeleteEntity, onClickEdit, onAddToInit, isTarget, onSetTarget, onToggleCondition }: { entity: Entity, onUpdateHP: any, onDeleteEntity: any, onClickEdit: () => void, onAddToInit: () => void, isTarget: boolean, onSetTarget: (id: number, multiSelect?: boolean) => void, onToggleCondition: (id: number, condition: string) => void }) => {
-  const hpPercent = Math.max(0, Math.min(100, (entity.hp / entity.maxHp) * 100));
-  
-  const isDead = entity.hp <= 0;
+const AoEColorPicker = ({ selected, onSelect }: { selected: string, onSelect: (c: string) => void }) => {
+    const colors = [
+        { c: '#ef4444', label: '🔥', name: 'Fogo' }, { c: '#3b82f6', label: '❄️', name: 'Gelo' },
+        { c: '#22c55e', label: '🧪', name: 'Ácido' }, { c: '#a855f7', label: '🔮', name: 'Magia' },
+        { c: '#eab308', label: '⚡', name: 'Raio' }, { c: '#111827', label: '🌑', name: 'Escuridão' },
+    ];
+    return (
+        <div className="flex gap-1 justify-center bg-black/40 p-1.5 rounded mt-2">
+            {colors.map(opt => (
+                <button key={opt.c} onClick={() => onSelect(opt.c)} className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] transition-all hover:scale-110 border ${selected === opt.c ? 'border-white scale-110 shadow-lg' : 'border-transparent opacity-70 hover:opacity-100'}`} style={{ backgroundColor: opt.c }} title={opt.name}>{opt.label}</button>
+            ))}
+        </div>
+    );
+};
 
+const EntityControlRow = ({ entity, onUpdateHP, onDeleteEntity, onClickEdit, onAddToInit, isTarget, isAttacker, onSetTarget, onSetAttacker, onToggleCondition, onAddXP }: any) => {
+  const hpPercent = Math.max(0, Math.min(100, (entity.hp / entity.maxHp) * 100));
+  const isDead = entity.hp <= 0;
   let barColor = 'bg-green-500';
   if (hpPercent < 30) barColor = 'bg-red-600';
   else if (hpPercent < 60) barColor = 'bg-yellow-500';
 
-  return (
-    <div 
-      className={`relative p-3 rounded border transition-all flex flex-col gap-2 group overflow-hidden cursor-pointer 
-        ${isDead ? 'opacity-60 grayscale bg-gray-900 border-gray-800' : ''} 
-        ${isTarget && !isDead ? 'bg-red-900/30 border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.3)]' : 'bg-rpgBg/50 border-rpgAccent/10 hover:bg-rpgBg/80'}
-      `}
-      onClick={(e) => onSetTarget(entity.id, e.shiftKey)}
-    >
-      {isDead && (
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-20 z-0">
-            <span className="text-4xl">💀</span>
-        </div>
-      )}
+  // Lógica de XP
+  const [showXPInput, setShowXPInput] = useState(false);
+  const [xpAmount, setXpAmount] = useState('');
 
-      {/* Ícones de Condição na Lista Lateral */}
-      {entity.conditions && entity.conditions.length > 0 && !isDead && (
-          <div className="absolute top-1 left-1 flex gap-0.5 z-10 pointer-events-none">
-              {entity.conditions.map(c => (
-                  <span key={c} className="text-[10px]">
-                      {{'poison': '☠️', 'fire': '🔥', 'stun': '💫', 'shield': '🛡️', 'blood': '🩸', 'sleep': '💤', 'web': '🕸️'}[c]}
-                  </span>
-              ))}
+  const handleGiveXP = (e: React.FormEvent) => {
+      e.preventDefault();
+      const amount = parseInt(xpAmount);
+      if (amount && onAddXP) {
+          onAddXP(entity.id, amount);
+          setXpAmount('');
+          setShowXPInput(false);
+      }
+  };
+
+  return (
+    <div className={`relative p-3 rounded border transition-all flex flex-col gap-2 group overflow-hidden cursor-pointer ${isDead ? 'opacity-60 grayscale bg-gray-900 border-gray-800' : ''} ${isTarget && !isDead ? 'bg-red-900/30 border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.3)]' : isAttacker ? 'bg-blue-900/30 border-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.3)]' : 'bg-rpgBg/50 border-rpgAccent/10 hover:bg-rpgBg/80'}`} onClick={(e) => onSetTarget(entity.id, e.shiftKey)}>
+      {isDead && (<div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-20 z-0"><span className="text-4xl">💀</span></div>)}
+      
+      {/* Botões Flutuantes (Hover) */}
+      <div className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-20 bg-black/90 border border-white/20 rounded p-0.5 shadow-xl">
+        {/* Botão XP (Só aparece para Jogadores) */}
+        {entity.type === 'player' && (
+            <button onClick={(e) => { e.stopPropagation(); setShowXPInput(!showXPInput); }} className="text-gray-300 hover:text-purple-400 hover:bg-white/10 rounded p-1.5 transition-colors text-sm" title="Dar XP">✨</button>
+        )}
+        <button onClick={(e) => { e.stopPropagation(); onSetAttacker(entity.id); }} className={`hover:bg-white/10 rounded p-1.5 transition-colors text-sm ${isAttacker ? 'text-blue-400' : 'text-gray-300'}`} title="Definir como Atacante">🎯</button>
+        <button onClick={(e) => { e.stopPropagation(); onAddToInit(); }} className="text-gray-300 hover:text-yellow-400 hover:bg-white/10 rounded p-1.5 transition-colors text-sm" title="Iniciativa">⚔️</button>
+        <button onClick={(e) => { e.stopPropagation(); onClickEdit(); }} className="text-gray-300 hover:text-blue-400 hover:bg-white/10 rounded p-1.5 transition-colors text-sm" title="Editar">✎</button>
+        <button onClick={(e) => { e.stopPropagation(); if (window.confirm(`Deletar ${entity.name}?`)) onDeleteEntity(entity.id); }} className="text-gray-300 hover:text-red-500 hover:bg-white/10 rounded p-1.5 transition-colors text-sm" title="Excluir">✕</button>
+      </div>
+
+      {/* Input de XP (Aparece ao clicar no botão ✨) */}
+      {showXPInput && (
+          <div className="absolute inset-0 z-30 bg-black/90 flex items-center justify-center p-2" onClick={(e) => e.stopPropagation()}>
+              <form onSubmit={handleGiveXP} className="flex gap-2 w-full">
+                  <input autoFocus type="number" placeholder="XP" className="w-full bg-gray-800 border border-purple-500 text-white px-2 py-1 rounded text-xs" value={xpAmount} onChange={(e) => setXpAmount(e.target.value)} />
+                  <button type="submit" className="bg-purple-600 text-white px-3 py-1 rounded text-xs font-bold">OK</button>
+                  <button type="button" onClick={() => setShowXPInput(false)} className="text-gray-400 hover:text-white text-xs">X</button>
+              </form>
           </div>
       )}
-
-      <div className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10 bg-black/60 rounded px-1">
-        <button onClick={(e) => { e.stopPropagation(); onAddToInit(); }} className="text-gray-400 hover:text-yellow-400 text-[10px] p-1">⚔️</button>
-        <button onClick={(e) => { e.stopPropagation(); onClickEdit(); }} className="text-gray-400 hover:text-blue-400 text-[10px] p-1">✎</button>
-        <button onClick={(e) => { e.stopPropagation(); if (window.confirm(`Deletar ${entity.name}?`)) onDeleteEntity(entity.id); }} className="text-gray-400 hover:text-red-500 text-[10px] p-1">✕</button>
-      </div>
 
       <div className="flex items-center justify-between pr-2 z-10 relative">
         <div className="flex items-center gap-3">
           <div className="relative w-10 h-10 flex-shrink-0">
-            {entity.image ? (
-              <img src={entity.image} alt={entity.name} className="w-full h-full rounded-full object-cover border border-white/20 shadow-sm"/>
-            ) : (
-              <div className="w-full h-full rounded-full" style={{ backgroundColor: entity.color }}></div>
+            {entity.image ? (<img src={entity.image} alt={entity.name} className="w-full h-full rounded-full object-cover border border-white/20 shadow-sm"/>) : (<div className="w-full h-full rounded-full" style={{ backgroundColor: entity.color }}></div>)}
+            {/* Indicador de Nível para Jogadores */}
+            {entity.type === 'player' && (
+                <div className="absolute -bottom-1 -right-1 bg-purple-900 border border-purple-500 text-white text-[9px] font-bold px-1 rounded-full shadow-md">
+                    Nv.{getLevelFromXP(entity.xp || 0)}
+                </div>
             )}
           </div>
           <div className="overflow-hidden">
-             <span className={`text-rpgText font-bold text-sm truncate block ${isDead ? 'line-through text-gray-500' : ''}`}>{entity.name}</span>
-             <span className="text-[10px] text-gray-500 uppercase">{entity.classType || 'NPC'}</span>
+              <span className={`text-rpgText font-bold text-sm truncate block ${isDead ? 'line-through text-gray-500' : ''}`}>{entity.name}</span>
+              <span className="text-[10px] text-gray-500 uppercase">{entity.classType || 'NPC'}</span>
           </div>
         </div>
-        <div className="text-right">
-           <span className={`text-xs font-bold font-mono ${isDead ? 'text-gray-500' : (entity.hp < entity.maxHp / 2 ? 'text-red-500' : 'text-green-400')}`}>
-             {entity.hp}/{entity.maxHp}
-           </span>
-        </div>
+        <div className="text-right"><span className={`text-xs font-bold font-mono ${isDead ? 'text-gray-500' : (entity.hp < entity.maxHp / 2 ? 'text-red-500' : 'text-green-400')}`}>{entity.hp}/{entity.maxHp}</span></div>
       </div>
-
-      <div className="w-full h-1.5 bg-gray-900 rounded-full overflow-hidden border border-white/5 mt-1 z-10 relative">
-        <div className={`h-full ${barColor} transition-all duration-500 ease-out`} style={{ width: `${hpPercent}%` }}></div>
-      </div>
+      
+      {/* Barra de XP (Abaixo da Vida, só para Players) */}
+      {entity.type === 'player' && (
+          <div className="w-full h-1 bg-gray-800 rounded-full mt-1 relative overflow-hidden">
+              <div 
+                  className="h-full bg-purple-500" 
+                  style={{ width: `${Math.min(100, ((entity.xp || 0) / getNextLevelXP(getLevelFromXP(entity.xp || 0))) * 100)}%` }}
+              ></div>
+          </div>
+      )}
+      
+      <div className="w-full h-1.5 bg-gray-900 rounded-full overflow-hidden border border-white/5 mt-1 z-10 relative"><div className={`h-full ${barColor} transition-all duration-500 ease-out`} style={{ width: `${hpPercent}%` }}></div></div>
     </div>
   );
 };
 
-const CombatVsPanel = ({ attacker, targets, onUpdateHP }: { attacker: Entity | null, targets: Entity[], onUpdateHP: (id: number, change: number) => void }) => {
+const CombatVsPanel = ({ attacker, targets, onUpdateHP, onSendMessage }: { attacker: Entity | null, targets: Entity[], onUpdateHP: (id: number, change: number) => void, onSendMessage: (text: string) => void }) => {
     const [amount, setAmount] = useState('');
-    
     const applyToAll = (damage: boolean) => {
         const val = parseInt(amount);
         if (val) {
-            targets.forEach(ent => { onUpdateHP(ent.id, damage ? -val : val); });
+            targets.forEach((ent:Entity) => { onUpdateHP(ent.id, damage ? -val : val); });
             setAmount('');
         }
+    };
+
+    const handleAttack = () => {
+        if (!attacker || targets.length === 0) return;
+        const str = attacker.stats?.str || 10;
+        const dex = attacker.stats?.dex || 10;
+        const mod = Math.floor((Math.max(str, dex) - 10) / 2);
+        const modStr = mod >= 0 ? `+${mod}` : `${mod}`;
+
+        targets.forEach(target => {
+            const d20 = Math.floor(Math.random() * 20) + 1;
+            const total = d20 + mod;
+            let resultText = "";
+            let isHit = false;
+            let isCrit = false;
+            let damage = 0;
+
+            if (d20 === 20) {
+                resultText = "CRÍTICO! 💥🔥";
+                isHit = true;
+                isCrit = true;
+            } else if (d20 === 1) {
+                resultText = "FALHA CRÍTICA! 💩";
+                isHit = false;
+            } else if (total >= target.ac) {
+                resultText = "ACERTOU! ⚔️";
+                isHit = true;
+            } else {
+                resultText = "ERROU! 🛡️";
+                isHit = false;
+            }
+
+            if (isHit) {
+                const baseDmg = Math.floor(Math.random() * 6) + 1;
+                damage = isCrit ? (baseDmg * 2) + mod : baseDmg + mod;
+                damage = Math.max(1, damage);
+                onUpdateHP(target.id, -damage); 
+                resultText += ` (Dano: ${damage} aplicado)`;
+            }
+
+            onSendMessage(`🎲 **${attacker.name}** ataca **${target.name}**\nRolagem: [${d20}] ${modStr} = **${total}** vs CA ${target.ac}\nResultado: **${resultText}**`);
+        });
     };
 
     const renderHpBar = (entity: Entity) => {
@@ -130,296 +213,345 @@ const CombatVsPanel = ({ attacker, targets, onUpdateHP }: { attacker: Entity | n
         let barColor = 'bg-green-500';
         if (hpPercent < 30) barColor = 'bg-red-600';
         else if (hpPercent < 60) barColor = 'bg-yellow-500';
-
         return (
             <div className="flex flex-col items-center w-full px-1 mt-2">
                 <div className="w-20 h-2 bg-gray-700 rounded-full border border-black/50 overflow-hidden relative shadow-inner">
                     <div className={`h-full ${barColor} transition-all duration-300`} style={{ width: `${hpPercent}%` }}></div>
                 </div>
-                <span className="text-[9px] text-white/80 font-mono mt-0.5 font-bold shadow-black drop-shadow-md">
-                    {entity.hp}/{entity.maxHp}
-                </span>
+                <span className="text-[9px] text-white/80 font-mono mt-0.5 font-bold shadow-black drop-shadow-md">{entity.hp}/{entity.maxHp}</span>
             </div>
         );
     };
-
     if (targets.length === 0 && !attacker) return null;
-
     return (
         <section className="mb-4 bg-gradient-to-r from-blue-900/20 to-red-900/20 border border-white/10 rounded-lg p-3 animate-in fade-in zoom-in duration-200">
-            <h3 className="text-white/50 font-bold text-[10px] uppercase tracking-widest mb-2 text-center">
-                ⚔️ RESOLUÇÃO DE COMBATE
-            </h3>
-            
+            <h3 className="text-white/50 font-bold text-[10px] uppercase tracking-widest mb-2 text-center">⚔️ RESOLUÇÃO DE COMBATE</h3>
             <div className="flex items-center justify-between gap-2 mb-3">
                 <div className="flex flex-col items-center w-1/3">
                     {attacker ? (
                         <>
-                            <div className="w-12 h-12 rounded-full border-2 border-blue-500 overflow-hidden shadow-lg bg-black relative">
-                                <img src={attacker.image || ''} className="w-full h-full object-cover" alt="" />
-                            </div>
+                            <div className="w-12 h-12 rounded-full border-2 border-blue-500 overflow-hidden shadow-lg bg-black relative"><img src={attacker.image || ''} className="w-full h-full object-cover" alt="" /></div>
                             <span className="text-[10px] text-blue-300 font-bold mt-1 truncate max-w-full text-center leading-tight">{attacker.name}</span>
                             {renderHpBar(attacker)}
                         </>
-                    ) : (
-                        <div className="w-12 h-12 rounded-full border-2 border-dashed border-blue-500/30 flex items-center justify-center text-blue-500/30 text-xs">?</div>
+                    ) : (<div className="w-12 h-12 rounded-full border-2 border-dashed border-blue-500/30 flex items-center justify-center text-blue-500/30 text-xs">?</div>)}
+                </div>
+                <div className="flex flex-col items-center gap-1">
+                    <span className="text-white/20 text-xl font-black">VS</span>
+                    {attacker && targets.length > 0 && (
+                        <button onClick={handleAttack} className="bg-yellow-600/80 hover:bg-yellow-500 text-white text-[10px] font-bold px-2 py-1 rounded shadow-lg border border-yellow-400/30 animate-pulse active:scale-95 transition-all">⚔️ ATACAR</button>
                     )}
                 </div>
-
-                <div className="text-white/20 text-xl font-black">VS</div>
-
                 <div className="flex flex-col items-center w-1/3">
                     {targets.length > 0 ? (
                         <>
                             <div className="flex -space-x-2 overflow-hidden justify-center w-full">
                                 {targets.slice(0, 3).map(t => (
-                                    <div key={t.id} className="w-8 h-8 rounded-full border border-red-500 overflow-hidden bg-black flex-shrink-0">
-                                        <img src={t.image || ''} className="w-full h-full object-cover" alt="" />
-                                    </div>
+                                    <div key={t.id} className="w-8 h-8 rounded-full border border-red-500 overflow-hidden bg-black flex-shrink-0"><img src={t.image || ''} className="w-full h-full object-cover" alt="" /></div>
                                 ))}
-                                {targets.length > 3 && (
-                                    <div className="w-8 h-8 rounded-full border border-red-500 bg-red-900 text-white text-[8px] flex items-center justify-center">+{targets.length - 3}</div>
-                                )}
+                                {targets.length > 3 && (<div className="w-8 h-8 rounded-full border border-red-500 bg-red-900 text-white text-[8px] flex items-center justify-center">+{targets.length - 3}</div>)}
                             </div>
                             <span className="text-[10px] text-red-400 font-bold mt-1">{targets.length} Alvo(s)</span>
                             {targets.length === 1 && renderHpBar(targets[0])}
                         </>
-                    ) : (
-                        <div className="w-12 h-12 rounded-full border-2 border-dashed border-red-500/30 flex items-center justify-center text-red-500/30 text-xs">?</div>
-                    )}
+                    ) : (<div className="w-12 h-12 rounded-full border-2 border-dashed border-red-500/30 flex items-center justify-center text-red-500/30 text-xs">?</div>)}
                 </div>
             </div>
-
             {targets.length > 0 && (
                 <div className="flex gap-2 border-t border-white/5 pt-3">
-                    <input type="number" placeholder="Dano" className="w-16 bg-black/50 border border-white/20 rounded p-1 text-center text-white text-sm font-bold outline-none focus:border-red-500" value={amount} onChange={e => setAmount(e.target.value)} autoFocus onKeyDown={e => { if(e.key === 'Enter') applyToAll(true); }} />
-                    <button onClick={() => applyToAll(true)} className="flex-1 bg-red-600 hover:bg-red-500 text-white font-bold rounded shadow-lg uppercase text-[10px]">Aplicar Dano</button>
+                    <input type="number" placeholder="Valor" className="w-16 bg-black/50 border border-white/20 rounded p-1 text-center text-white text-sm font-bold outline-none focus:border-yellow-500" value={amount} onChange={e => setAmount(e.target.value)} onKeyDown={e => { if(e.key === 'Enter') applyToAll(true); }} />
+                    <button onClick={() => applyToAll(true)} className="flex-1 bg-red-600 hover:bg-red-500 text-white font-bold rounded shadow-lg uppercase text-[10px] transition-colors">🩸 Dano</button>
+                    <button onClick={() => applyToAll(false)} className="flex-1 bg-green-600 hover:bg-green-500 text-white font-bold rounded shadow-lg uppercase text-[10px] transition-colors">💚 Curar</button>
                 </div>
             )}
         </section>
     );
 };
 
-const AVAILABLE_MAPS = [
-  { name: 'Floresta', url: '/maps/floresta.jpg' },
-  { name: 'Caverna', url: '/maps/caverna.jpg' },
-  { name: 'Taverna', url: '/maps/taverna.jpg' },
-  { name: 'Masmorra', url: '/maps/masmorra.jpg' },
-];
+const AVAILABLE_MAPS = [{ name: 'Floresta', url: '/maps/floresta.jpg' }, { name: 'Caverna', url: '/maps/caverna.jpg' }, { name: 'Taverna', url: '/maps/taverna.jpg' }, { name: 'Masmorra', url: '/maps/masmorra.jpg' }];
 
-const MONSTER_LIST: MonsterPreset[] = [
-  { name: 'Lobo', hp: 11, ac: 13, image: '/tokens/lobo.png' },
-  { name: 'Goblin', hp: 7, ac: 15, image: '/tokens/goblin.png' },
-  { name: 'Esqueleto', hp: 13, ac: 13, image: '/tokens/skeleton.png' },
-  { name: 'Orc', hp: 15, ac: 13, image: '/tokens/orc.png' },
-  { name: 'Bandido', hp: 11, ac: 12, image: '/tokens/bandido.png' },
-  { name: 'Zumbi', hp: 22, ac: 8, image: '/tokens/zumbi.png' },
-];
+type SidebarTab = 'combat' | 'map' | 'create' | 'audio';
+
+// --- NOVO ESTADO PRINCIPAL (FERRAMENTAS VS CHAT) ---
+type MainTab = 'tools' | 'chat';
 
 const SidebarDM: React.FC<SidebarDMProps> = ({ 
   entities, onUpdateHP, onAddEntity, onDeleteEntity, onEditEntity,
-  isFogMode, onToggleFogMode, onResetFog, onRevealAll,
-  fogTool, onSetFogTool, onSyncFog, onSaveGame, onChangeMap,
+  isFogMode, onToggleFogMode, onResetFog, onRevealAll, fogTool, onSetFogTool, onSyncFog, onSaveGame, onChangeMap,
   initiativeList, activeTurnId, onAddToInitiative, onRemoveFromInitiative, onNextTurn, onClearInitiative, onSortInitiative,
-  targetEntityIds, attackerId, onSetTarget,
-  onToggleCondition,
-  activeAoE, onSetAoE // Props novas
+  targetEntityIds, attackerId, onSetTarget, onToggleCondition,
+  activeAoE, onSetAoE, chatMessages, onSendMessage,
+  onSetAttacker, aoeColor, onSetAoEColor,
+  onOpenCreator,
+  onAddXP
 }) => {
   const [editingEntity, setEditingEntity] = useState<Entity | null>(null);
+  const [activeTab, setActiveTab] = useState<SidebarTab>('combat');
+  const [mainTab, setMainTab] = useState<MainTab>('tools'); // Novo estado principal
   const [showMonsterSelector, setShowMonsterSelector] = useState(false);
 
-  const handleDragStart = (e: React.DragEvent, type: 'enemy' | 'player') => {
-    e.dataTransfer.setData("entityType", type);
-    e.dataTransfer.effectAllowed = "copy";
-  };
-
-  const handleSelectMonster = (monster: MonsterPreset) => {
+  const handleDragStart = (e: React.DragEvent, type: 'enemy' | 'player') => { e.dataTransfer.setData("entityType", type); };
+  
+  const handleSelectPreset = (monster: MonsterPreset) => {
     const count = entities.filter(e => e.name.startsWith(monster.name)).length;
     const finalName = count > 0 ? `${monster.name} ${count + 1}` : monster.name;
     onAddEntity('enemy', finalName, monster);
-    setShowMonsterSelector(false); 
+    setShowMonsterSelector(false);
   };
 
   const attacker = entities.find(e => e.id === attackerId) || null;
   const targets = entities.filter(e => targetEntityIds.includes(e.id));
+  
+  const toggleConditionForAll = (cond: string) => { targets.forEach(t => onToggleCondition(t.id, cond)); };
 
-  const toggleConditionForAll = (cond: string) => {
-      targets.forEach(t => onToggleCondition(t.id, cond));
+  const rollBulkInitiative = (type: 'npc' | 'selected') => {
+      const targetsToRoll = type === 'npc' 
+        ? entities.filter(e => e.type === 'enemy') 
+        : entities.filter(e => targetEntityIds.includes(e.id));
+
+      if(targetsToRoll.length === 0) return;
+      targetsToRoll.forEach(ent => {
+          if (!initiativeList.find(i => i.id === ent.id)) onAddToInitiative(ent);
+      });
   };
 
   return (
     <>
       {editingEntity && (<EditEntityModal entity={editingEntity} onSave={onEditEntity} onClose={() => setEditingEntity(null)} />)}
-
+      
       {showMonsterSelector && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={() => setShowMonsterSelector(false)}>
-          <div className="bg-gray-900 border border-red-900/50 p-6 rounded-lg shadow-2xl w-[400px] max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-red-500 font-bold uppercase tracking-widest mb-4 text-center border-b border-white/10 pb-2">Invocar Monstro</h3>
-            <div className="grid grid-cols-2 gap-3">
+        <div className="fixed inset-0 z-[350] flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={() => setShowMonsterSelector(false)}>
+          <div className="bg-gray-900 border border-red-900/50 p-6 rounded-lg shadow-2xl w-[450px] max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-red-500 font-bold uppercase tracking-widest mb-4 text-center border-b border-white/10 pb-2">Invocar Inimigo</h3>
+            
+            <div className="grid grid-cols-2 gap-3 mb-6">
               {MONSTER_LIST.map((monster) => (
-                <button 
-                  key={monster.name} 
-                  onClick={() => handleSelectMonster(monster)}
-                  className="flex flex-col items-center bg-black/40 hover:bg-red-900/20 border border-white/10 hover:border-red-500/50 p-3 rounded transition-all group"
-                >
+                <button key={monster.name} onClick={() => handleSelectPreset(monster)} className="flex flex-col items-center bg-black/40 hover:bg-red-900/20 border border-white/10 hover:border-red-500/50 p-3 rounded transition-all group">
                   <div className="w-12 h-12 rounded-full overflow-hidden mb-2 border border-white/20 group-hover:border-red-500">
-                    <img src={monster.image} alt={monster.name} className="w-full h-full object-cover" onError={(e) => e.currentTarget.src = '/tokens/lobo.png'} />
+                    <img src={monster.image} alt={monster.name} className="w-full h-full object-cover" />
                   </div>
                   <span className="text-sm font-bold text-gray-300 group-hover:text-white">{monster.name}</span>
-                  <div className="flex gap-2 text-[10px] text-gray-500 font-mono mt-1">
-                    <span>❤️ {monster.hp}</span>
-                    <span>🛡️ {monster.ac}</span>
-                  </div>
+                  <div className="flex gap-2 text-[10px] text-gray-500 font-mono mt-1"><span>❤️ {monster.hp}</span><span>🛡️ {monster.ac}</span></div>
                 </button>
               ))}
             </div>
-            <button onClick={() => setShowMonsterSelector(false)} className="w-full mt-4 py-2 text-xs text-gray-500 hover:text-white border border-transparent hover:border-white/20 rounded">Cancelar</button>
+
+            <button 
+              onClick={() => { setShowMonsterSelector(false); onOpenCreator('enemy'); }} 
+              className="w-full py-3 bg-red-900/40 hover:bg-red-600 border border-red-500/50 text-white font-bold rounded uppercase text-xs transition-all mb-2"
+            >
+              ⚙️ Personalizar (Criar do Zero)
+            </button>
+            
+            <button onClick={() => setShowMonsterSelector(false)} className="w-full py-2 text-xs text-gray-500 hover:text-white border border-transparent hover:border-white/20 rounded">Cancelar</button>
           </div>
         </div>
       )}
 
       <div className="flex flex-col h-full bg-rpgPanel shadow-2xl">
-        <div className="flex-grow overflow-y-auto p-4 custom-scrollbar">
-          <h2 className="text-rpgAccent font-sans font-bold uppercase tracking-tighter text-xl mb-6 border-b border-rpgAccent/20 pb-2">Painel do Mestre</h2>
-
-          {/* --- NOVO: FERRAMENTAS DE ÁREA DE EFEITO (AoE) --- */}
-          <section className="mb-6 border-b border-white/5 pb-4">
-             <h3 className="text-rpgText font-mono text-[10px] uppercase mb-2 opacity-50 tracking-widest">Ferramentas de Área</h3>
-             <div className="flex gap-2">
-                <button 
-                    onClick={() => onSetAoE(activeAoE === 'circle' ? null : 'circle')} 
-                    className={`flex-1 py-2 rounded text-xs font-bold border transition-all ${activeAoE === 'circle' ? 'bg-blue-600 border-blue-400 text-white shadow-[0_0_10px_rgba(37,99,235,0.5)]' : 'bg-gray-800 border-gray-600 text-gray-400 hover:bg-gray-700'}`}
-                >
-                    ⭕ Círculo
-                </button>
-                <button 
-                    onClick={() => onSetAoE(activeAoE === 'cone' ? null : 'cone')} 
-                    className={`flex-1 py-2 rounded text-xs font-bold border transition-all ${activeAoE === 'cone' ? 'bg-blue-600 border-blue-400 text-white shadow-[0_0_10px_rgba(37,99,235,0.5)]' : 'bg-gray-800 border-gray-600 text-gray-400 hover:bg-gray-700'}`}
-                >
-                    🔺 Cone
-                </button>
-                <button 
-                    onClick={() => onSetAoE(activeAoE === 'cube' ? null : 'cube')} 
-                    className={`flex-1 py-2 rounded text-xs font-bold border transition-all ${activeAoE === 'cube' ? 'bg-blue-600 border-blue-400 text-white shadow-[0_0_10px_rgba(37,99,235,0.5)]' : 'bg-gray-800 border-gray-600 text-gray-400 hover:bg-gray-700'}`}
-                >
-                    🟥 Cubo
-                </button>
-             </div>
-             {activeAoE && <p className="text-[9px] text-yellow-500 mt-2 text-center animate-pulse border border-yellow-500/30 bg-yellow-900/20 rounded py-1">🖌️ Clique e arraste no mapa para desenhar</p>}
-          </section>
-
-          <CombatVsPanel attacker={attacker} targets={targets} onUpdateHP={onUpdateHP} />
-
-          {/* PAINEL DE CONDIÇÕES */}
-          {targets.length > 0 && (
-              <section className="mb-6 bg-black/20 p-2 rounded border border-white/10">
-                  <h3 className="text-rpgText font-mono text-[10px] uppercase mb-2 opacity-70">Aplicar Condição</h3>
-                  <div className="flex gap-2 justify-center flex-wrap">
-                      {['poison', 'fire', 'stun', 'shield', 'blood', 'sleep', 'web'].map(cond => (
-                          <button 
-                            key={cond} 
-                            onClick={() => toggleConditionForAll(cond)}
-                            className={`w-8 h-8 rounded border flex items-center justify-center text-lg transition-all hover:bg-white/20 bg-transparent border-white/20 hover:scale-110 active:scale-95`}
-                            title={cond}
-                          >
-                              {{'poison': '☠️', 'fire': '🔥', 'stun': '💫', 'shield': '🛡️', 'blood': '🩸', 'sleep': '💤', 'web': '🕸️'}[cond]}
-                          </button>
-                      ))}
-                  </div>
-              </section>
-          )}
-
-          {/* ... Restante do código (Iniciativa, Lista, etc.) ... */}
-          {initiativeList.length > 0 && (
-            <section className="mb-6 bg-black/40 border border-yellow-900/30 rounded p-2">
-              <div className="flex justify-between items-center mb-2">
-                <h3 className="text-yellow-500 font-mono text-[10px] uppercase tracking-widest">Turno Atual</h3>
-                <div className="flex gap-1">
-                  <button onClick={onSortInitiative} className="text-[9px] bg-gray-700 px-2 rounded hover:bg-gray-600" title="Ordenar">Sort</button>
-                  <button onClick={onClearInitiative} className="text-[9px] bg-red-900/50 px-2 rounded hover:bg-red-600" title="Limpar">Limpar</button>
-                </div>
-              </div>
-              <div className="flex flex-col gap-1 mb-2 max-h-40 overflow-y-auto">
-                {initiativeList.map((item, index) => (
-                  <div key={index} 
-                       className={`flex justify-between items-center p-2 rounded text-xs cursor-pointer ${item.id === activeTurnId ? 'bg-yellow-900/40 border border-yellow-500/50' : 'bg-white/5 hover:bg-white/10'}`}
-                       onClick={(e) => onSetTarget(item.id, e.shiftKey)}
-                  >
-                    <span className={item.id === activeTurnId ? 'text-yellow-200 font-bold' : 'text-gray-300'}>{item.value} - {item.name}</span>
-                    <button onClick={(e) => { e.stopPropagation(); onRemoveFromInitiative(item.id); }} className="text-red-500 hover:text-red-300 ml-2">×</button>
-                  </div>
-                ))}
-              </div>
-              <button onClick={onNextTurn} className="w-full py-2 bg-yellow-700 hover:bg-yellow-600 text-white text-xs font-bold uppercase rounded shadow-lg border border-yellow-500/30">Próximo Turno ⏩</button>
-            </section>
-          )}
-
-          <section className="mb-6 border-b border-white/5 pb-4">
-             <h3 className="text-rpgText font-mono text-[10px] uppercase mb-2 opacity-50 tracking-widest">Cenário</h3>
-             <div className="grid grid-cols-2 gap-2">
-                {AVAILABLE_MAPS.map(map => (
-                  <button key={map.url} onClick={() => onChangeMap(map.url)} className="bg-gray-800 hover:bg-gray-700 border border-gray-600 text-gray-300 text-[10px] font-bold py-2 rounded transition-all active:scale-95">{map.name}</button>
-                ))}
-             </div>
-          </section>
-
-          <div className="grid grid-cols-2 gap-2 mb-6">
-            <button draggable onDragStart={(e) => handleDragStart(e, 'enemy')} onClick={() => setShowMonsterSelector(true)} className="bg-red-900/50 hover:bg-red-600 border border-red-500/30 text-white text-xs font-bold py-2 rounded uppercase tracking-wider transition-all shadow-lg active:scale-95 cursor-grab">+ Inimigo</button>
-            <button draggable onDragStart={(e) => handleDragStart(e, 'player')} onClick={() => onAddEntity('player', 'NPC')} className="bg-blue-900/50 hover:bg-blue-600 border border-blue-500/30 text-white text-xs font-bold py-2 rounded uppercase tracking-wider transition-all shadow-lg active:scale-95 cursor-grab">+ Aliado</button>
-          </div>
-
-          <section className="mb-6 border-t border-b border-white/5 py-4 bg-black/20 rounded">
-            <h3 className="text-rpgText font-mono text-[10px] uppercase mb-3 opacity-50 tracking-widest px-2">Neblina de Guerra</h3>
-            <div className="flex flex-col gap-2 px-2">
-              <button onClick={onToggleFogMode} className={`w-full py-2 rounded text-xs font-bold uppercase tracking-wider border transition-all ${isFogMode ? 'bg-yellow-600 border-yellow-400 text-white shadow-sm' : 'bg-gray-800 border-gray-600 text-gray-400 hover:bg-gray-700'}`}>{isFogMode ? '✎ Modo Edição Ativo' : '✎ Editar Neblina'}</button>
-              {isFogMode && (
-                <div className="flex gap-1 bg-black/40 p-1 rounded border border-white/10 mt-1 mb-1">
-                  <button onClick={() => onSetFogTool('reveal')} className={`flex-1 py-1 text-[10px] uppercase font-bold rounded transition-colors ${fogTool === 'reveal' ? 'bg-green-600 text-white shadow-sm' : 'hover:bg-white/10 text-gray-400'}`}>🔦 Revelar</button>
-                  <button onClick={() => onSetFogTool('hide')} className={`flex-1 py-1 text-[10px] uppercase font-bold rounded transition-colors ${fogTool === 'hide' ? 'bg-red-600 text-white shadow-sm' : 'hover:bg-white/10 text-gray-400'}`}>☁️ Esconder</button>
-                </div>
-              )}
-              <div className="flex gap-2">
-                <button onClick={onRevealAll} className="flex-1 py-1 bg-gray-800 hover:bg-gray-700 text-[9px] text-gray-400 rounded border border-gray-700">Tudo Visível</button>
-                <button onClick={onResetFog} className="flex-1 py-1 bg-gray-800 hover:bg-gray-700 text-[9px] text-gray-400 rounded border border-gray-700">Tudo Preto</button>
-              </div>
-              <button onClick={onSyncFog} className="w-full py-1 mt-2 bg-purple-900/30 hover:bg-purple-600/50 border border-purple-500/30 text-[9px] text-purple-200 uppercase font-bold rounded transition-all">📡 Sincronizar Jogadores</button>
-            </div>
-          </section>
-
-          <section className="mb-6 border-t border-b border-white/5 py-4 bg-black/20 rounded">
-            <h3 className="text-rpgText font-mono text-[10px] uppercase mb-3 opacity-50 tracking-widest px-2">Sistema</h3>
-            <div className="px-2">
-              <button onClick={onSaveGame} className="w-full py-2 bg-green-900/40 hover:bg-green-600/60 border border-green-500/30 text-green-200 text-xs font-bold uppercase rounded transition-all shadow-lg">💾 Salvar Estado do Jogo</button>
-            </div>
-          </section>
-
-          <section className="mb-8">
-            <h3 className="text-rpgText font-mono text-[10px] uppercase mb-3 opacity-50 tracking-widest">Combate / Status</h3>
-            <div className="space-y-2">
-              {entities.map((entity) => (
-                <EntityControlRow 
-                    key={entity.id} 
-                    entity={entity} 
-                    onUpdateHP={onUpdateHP} 
-                    onDeleteEntity={onDeleteEntity} 
-                    onClickEdit={() => setEditingEntity(entity)} 
-                    onAddToInit={() => onAddToInitiative(entity)} 
-                    isTarget={targetEntityIds.includes(entity.id)} 
-                    onSetTarget={onSetTarget}
-                    onToggleCondition={onToggleCondition} 
-                />
-              ))}
-            </div>
-          </section>
-          <Soundboard />
+        
+        {/* --- NOVO MENU SUPERIOR (TIPO PLAYER) --- */}
+        <div className="flex border-b border-white/10 bg-black/40 flex-shrink-0">
+            <button 
+              onClick={() => setMainTab('tools')} 
+              className={`flex-1 py-3 text-center text-sm font-bold uppercase tracking-wider transition-all ${mainTab === 'tools' ? 'text-white bg-rpgAccent/20 border-b-2 border-rpgAccent' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`}
+            >
+              🛠️ Ferramentas
+            </button>
+            <button 
+              onClick={() => setMainTab('chat')} 
+              className={`flex-1 py-3 text-center text-sm font-bold uppercase tracking-wider transition-all ${mainTab === 'chat' ? 'text-white bg-rpgAccent/20 border-b-2 border-rpgAccent' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`}
+            >
+              💬 Chat
+            </button>
         </div>
-        <div className="border-t border-rpgAccent/10 bg-black/20">
-          <div className="flex items-center justify-between px-4 py-1 border-b border-white/5">
-            <p className="text-[8px] text-rpgText/30 font-mono italic">v2.9 - Conditions</p>
-            <span className="text-[8px] text-rpgAccent/50 font-mono uppercase">Mestre On-line</span>
-          </div>
-          <Chat />
-        </div>
+
+        {/* --- CONTEÚDO PRINCIPAL --- */}
+        {mainTab === 'chat' ? (
+            <div className="flex-grow flex flex-col h-full overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-1 border-b border-white/5 bg-black/20">
+                    <p className="text-[8px] text-rpgText/30 font-mono italic">Canal Global</p>
+                    <span className="text-[8px] text-rpgAccent/50 font-mono uppercase">Mestre On-line</span>
+                </div>
+                <Chat messages={chatMessages} onSendMessage={onSendMessage} role="DM" />
+            </div>
+        ) : (
+            <div className="flex flex-col h-full overflow-hidden">
+                {/* MENU DE ÍCONES DAS FERRAMENTAS */}
+                <div className="flex border-b border-white/10 bg-black/40 flex-shrink-0">
+                    <button onClick={() => setActiveTab('combat')} className={`flex-1 py-2 text-center text-lg transition-all ${activeTab === 'combat' ? 'text-white bg-rpgAccent/20 border-b-2 border-rpgAccent' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`} title="Combate">⚔️</button>
+                    <button onClick={() => setActiveTab('map')} className={`flex-1 py-2 text-center text-lg transition-all ${activeTab === 'map' ? 'text-white bg-rpgAccent/20 border-b-2 border-rpgAccent' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`} title="Mapa & Ferramentas">🗺️</button>
+                    <button onClick={() => setActiveTab('create')} className={`flex-1 py-2 text-center text-lg transition-all ${activeTab === 'create' ? 'text-white bg-rpgAccent/20 border-b-2 border-rpgAccent' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`} title="Criar Entidades">🐉</button>
+                    <button onClick={() => setActiveTab('audio')} className={`flex-1 py-2 text-center text-lg transition-all ${activeTab === 'audio' ? 'text-white bg-rpgAccent/20 border-b-2 border-rpgAccent' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`} title="Áudio">🔊</button>
+                </div>
+
+                <div className="flex-grow overflow-y-auto p-4 custom-scrollbar">
+                    {activeTab === 'combat' && (
+                        <div className="animate-in fade-in slide-in-from-right-4 duration-300">
+                            <CombatVsPanel attacker={attacker} targets={targets} onUpdateHP={onUpdateHP} onSendMessage={onSendMessage} />
+                            
+                            <section className="mb-4 flex gap-2">
+                                <button onClick={() => rollBulkInitiative('npc')} className="flex-1 bg-red-900/30 hover:bg-red-800 border border-red-500/20 text-[10px] text-red-200 py-2 rounded uppercase font-bold tracking-wider">🎲 Rolar NPCs</button>
+                                <button onClick={() => rollBulkInitiative('selected')} className="flex-1 bg-blue-900/30 hover:bg-blue-800 border border-blue-500/20 text-[10px] text-blue-200 py-2 rounded uppercase font-bold tracking-wider">🎲 Rolar Selec.</button>
+                            </section>
+
+                            <section className="mb-6 bg-black/40 border border-yellow-900/30 rounded p-2">
+                                <div className="flex justify-between items-center mb-2">
+                                    <h3 className="text-yellow-500 font-mono text-[10px] uppercase tracking-widest">Iniciativa</h3>
+                                    <div className="flex gap-1">
+                                        <button onClick={onSortInitiative} className="text-[9px] bg-gray-700 px-2 rounded hover:bg-gray-600" title="Ordenar">Sort</button>
+                                        <button onClick={onClearInitiative} className="text-[9px] bg-red-900/50 px-2 rounded hover:bg-red-600" title="Limpar">Limpar</button>
+                                    </div>
+                                </div>
+                                {initiativeList.length > 0 ? (
+                                    <>
+                                        <div className="flex flex-col gap-1 mb-2 max-h-40 overflow-y-auto">
+                                            {initiativeList.map((item:any, index:number) => (
+                                                <div key={index} className={`flex justify-between items-center p-2 rounded text-xs cursor-pointer ${item.id === activeTurnId ? 'bg-yellow-900/40 border border-yellow-500/50' : 'bg-white/5 hover:bg-white/10'}`} onClick={(e) => onSetTarget(item.id, e.shiftKey)}>
+                                                        <span className={item.id === activeTurnId ? 'text-yellow-200 font-bold' : 'text-gray-300'}>{item.value} - {item.name}</span>
+                                                        <button onClick={(e) => { e.stopPropagation(); onRemoveFromInitiative(item.id); }} className="text-red-500 hover:text-red-300 ml-2">×</button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                        <button onClick={onNextTurn} className="w-full py-2 bg-yellow-700 hover:bg-yellow-600 text-white text-xs font-bold uppercase rounded shadow-lg border border-yellow-500/30 animate-pulse">Próximo Turno ⏩</button>
+                                    </>
+                                ) : <p className="text-center text-gray-500 text-xs py-2">Sem iniciativa.</p>}
+                            </section>
+                            
+                            <section className="mb-4 bg-black/40 border border-white/10 rounded p-2">
+                                <h3 className="text-[10px] text-gray-400 uppercase mb-2 text-center font-bold tracking-widest">
+                                    Condições
+                                </h3>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <button 
+                                        onClick={() => toggleConditionForAll('poison')} 
+                                        className="flex items-center gap-2 px-3 py-2 bg-green-900/40 hover:bg-green-600/60 border border-green-500/30 hover:border-green-400 rounded transition-all active:scale-95 group"
+                                        title="Envenenado"
+                                    >
+                                        <span className="text-lg filter drop-shadow-md group-hover:scale-110 transition-transform">☠️</span>
+                                        <span className="text-[10px] font-bold text-green-100 uppercase tracking-wider">Veneno</span>
+                                    </button>
+
+                                    <button 
+                                        onClick={() => toggleConditionForAll('stun')} 
+                                        className="flex items-center gap-2 px-3 py-2 bg-yellow-900/40 hover:bg-yellow-600/60 border border-yellow-500/30 hover:border-yellow-400 rounded transition-all active:scale-95 group"
+                                        title="Atordoado"
+                                    >
+                                        <span className="text-lg filter drop-shadow-md group-hover:scale-110 transition-transform">💫</span>
+                                        <span className="text-[10px] font-bold text-yellow-100 uppercase tracking-wider">Atordoar</span>
+                                    </button>
+
+                                    <button 
+                                        onClick={() => toggleConditionForAll('fire')} 
+                                        className="flex items-center gap-2 px-3 py-2 bg-red-900/40 hover:bg-red-600/60 border border-red-500/30 hover:border-red-400 rounded transition-all active:scale-95 group"
+                                        title="Em Chamas"
+                                    >
+                                        <span className="text-lg filter drop-shadow-md group-hover:scale-110 transition-transform">🔥</span>
+                                        <span className="text-[10px] font-bold text-red-100 uppercase tracking-wider">Fogo</span>
+                                    </button>
+
+                                    <button 
+                                        onClick={() => toggleConditionForAll('sleep')} 
+                                        className="flex items-center gap-2 px-3 py-2 bg-purple-900/40 hover:bg-purple-600/60 border border-purple-500/30 hover:border-purple-400 rounded transition-all active:scale-95 group"
+                                        title="Dormindo"
+                                    >
+                                        <span className="text-lg filter drop-shadow-md group-hover:scale-110 transition-transform">💤</span>
+                                        <span className="text-[10px] font-bold text-purple-100 uppercase tracking-wider">Sono</span>
+                                    </button>
+                                </div>
+                            </section>
+
+                            <section className="mb-8">
+                                <h3 className="text-rpgText font-mono text-[10px] uppercase mb-3 opacity-50 tracking-widest">Entidades no Mapa</h3>
+                                <div className="space-y-2">
+                                    {entities.map((entity) => (
+                                        <EntityControlRow 
+                                            key={entity.id} entity={entity} onUpdateHP={onUpdateHP} onDeleteEntity={onDeleteEntity} 
+                                            onClickEdit={() => setEditingEntity(entity)} onAddToInit={() => onAddToInitiative(entity)} 
+                                            isTarget={targetEntityIds.includes(entity.id)} isAttacker={attackerId === entity.id}
+                                            onSetTarget={onSetTarget} onSetAttacker={onSetAttacker} onToggleCondition={onToggleCondition}
+                                            onAddXP={onAddXP}
+                                        />
+                                    ))}
+                                </div>
+                            </section>
+                        </div>
+                    )}
+
+                    {activeTab === 'map' && (
+                        <div className="animate-in fade-in slide-in-from-right-4 duration-300">
+                            <section className="mb-6 border-b border-white/5 pb-4">
+                                <h3 className="text-rpgText font-mono text-[10px] uppercase mb-2 opacity-50 tracking-widest">Trocar Cenário</h3>
+                                <div className="grid grid-cols-2 gap-2">
+                                    {AVAILABLE_MAPS.map(map => (
+                                        <button key={map.url} onClick={() => onChangeMap(map.url)} className="bg-gray-800 hover:bg-gray-700 border border-gray-600 text-gray-300 text-[10px] font-bold py-2 rounded transition-all active:scale-95">{map.name}</button>
+                                    ))}
+                                </div>
+                            </section>
+                            <section className="mb-6 border-b border-white/5 pb-4 bg-white/5 rounded p-2">
+                                <h3 className="text-rpgText font-mono text-[10px] uppercase mb-2 opacity-50 tracking-widest text-center">Magias & Áreas</h3>
+                                <AoEColorPicker selected={aoeColor} onSelect={onSetAoEColor} />
+                                <div className="flex gap-2 mt-3">
+                                    <button onClick={() => onSetAoE(activeAoE === 'circle' ? null : 'circle')} className={`flex-1 py-2 rounded text-[10px] font-bold border transition-all flex flex-col items-center gap-1 ${activeAoE === 'circle' ? 'border-white text-white bg-white/10' : 'border-white/10 text-gray-400 hover:bg-white/5'}`} style={activeAoE === 'circle' ? {borderColor: aoeColor, color: aoeColor} : {}}><span className="text-lg">⭕</span> Círculo</button>
+                                    <button onClick={() => onSetAoE(activeAoE === 'cone' ? null : 'cone')} className={`flex-1 py-2 rounded text-[10px] font-bold border transition-all flex flex-col items-center gap-1 ${activeAoE === 'cone' ? 'border-white text-white bg-white/10' : 'border-white/10 text-gray-400 hover:bg-white/5'}`} style={activeAoE === 'cone' ? {borderColor: aoeColor, color: aoeColor} : {}}><span className="text-lg">🔺</span> Cone</button>
+                                    <button onClick={() => onSetAoE(activeAoE === 'cube' ? null : 'cube')} className={`flex-1 py-2 rounded text-[10px] font-bold border transition-all flex flex-col items-center gap-1 ${activeAoE === 'cube' ? 'border-white text-white bg-white/10' : 'border-white/10 text-gray-400 hover:bg-white/5'}`} style={activeAoE === 'cube' ? {borderColor: aoeColor, color: aoeColor} : {}}><span className="text-lg">🟥</span> Cubo</button>
+                                </div>
+                                {activeAoE && <p className="text-[9px] mt-2 text-center animate-pulse opacity-80" style={{color: aoeColor}}>🖌️ Clique e arraste no mapa</p>}
+                            </section>
+                            <section className="mb-6 border-b border-white/5 pb-4 bg-black/20 rounded p-2">
+                                <h3 className="text-rpgText font-mono text-[10px] uppercase mb-3 opacity-50 tracking-widest">Neblina de Guerra</h3>
+                                <div className="flex flex-col gap-2">
+                                    <button onClick={onToggleFogMode} className={`w-full py-2 rounded text-xs font-bold uppercase tracking-wider border transition-all ${isFogMode ? 'bg-yellow-600 border-yellow-400 text-white shadow-sm' : 'bg-gray-800 border-gray-600 text-gray-400 hover:bg-gray-700'}`}>{isFogMode ? '✎ Modo Edição Ativo' : '✎ Editar Neblina'}</button>
+                                    {isFogMode && (
+                                        <div className="flex gap-1 bg-black/40 p-1 rounded border border-white/10 mt-1 mb-1">
+                                            <button onClick={() => onSetFogTool('reveal')} className={`flex-1 py-1 text-[10px] uppercase font-bold rounded transition-colors ${fogTool === 'reveal' ? 'bg-green-600 text-white shadow-sm' : 'hover:bg-white/10 text-gray-400'}`}>🔦 Revelar</button>
+                                            <button onClick={() => onSetFogTool('hide')} className={`flex-1 py-1 text-[10px] uppercase font-bold rounded transition-colors ${fogTool === 'hide' ? 'bg-red-600 text-white shadow-sm' : 'hover:bg-white/10 text-gray-400'}`}>☁️ Esconder</button>
+                                        </div>
+                                    )}
+                                    <div className="flex gap-2">
+                                        <button onClick={onRevealAll} className="flex-1 py-1 bg-gray-800 hover:bg-gray-700 text-[9px] text-gray-400 rounded border border-gray-700">Tudo Visível</button>
+                                        <button onClick={onResetFog} className="flex-1 py-1 bg-gray-800 hover:bg-gray-700 text-[9px] text-gray-400 rounded border border-gray-700">Tudo Preto</button>
+                                    </div>
+                                    <button onClick={onSyncFog} className="w-full py-1 mt-2 bg-purple-900/30 hover:bg-purple-600/50 border border-purple-500/30 text-[9px] text-purple-200 uppercase font-bold rounded transition-all">📡 Sincronizar Jogadores</button>
+                                </div>
+                            </section>
+                            <div className="px-2">
+                                <button onClick={onSaveGame} className="w-full py-2 bg-green-900/40 hover:bg-green-600/60 border border-green-500/30 text-green-200 text-xs font-bold uppercase rounded transition-all shadow-lg">💾 Salvar Estado do Jogo</button>
+                            </div>
+                        </div>
+                    )}
+
+                    {activeTab === 'create' && (
+                        <div className="animate-in fade-in slide-in-from-right-4 duration-300">
+                            <h3 className="text-rpgText font-mono text-[10px] uppercase mb-4 opacity-50 tracking-widest text-center">Adicionar Entidades</h3>
+                            
+                            <button 
+                                draggable 
+                                onDragStart={(e) => handleDragStart(e, 'enemy')} 
+                                onClick={() => setShowMonsterSelector(true)} 
+                                className="w-full bg-red-900/50 hover:bg-red-600 border border-red-500/30 text-white text-lg font-bold py-6 rounded uppercase tracking-wider transition-all shadow-lg active:scale-95 cursor-grab mb-4 flex flex-col items-center gap-2"
+                            >
+                                <span className="text-2xl">👹</span> Adicionar Inimigo
+                            </button>
+
+                            <button 
+                                draggable 
+                                onDragStart={(e) => handleDragStart(e, 'player')} 
+                                onClick={() => onOpenCreator('player')} 
+                                className="w-full bg-blue-900/50 hover:bg-blue-600 border border-blue-500/30 text-white text-lg font-bold py-6 rounded uppercase tracking-wider transition-all shadow-lg active:scale-95 cursor-grab flex flex-col items-center gap-2"
+                            >
+                                <span className="text-2xl">🛡️</span> Adicionar Aliado
+                            </button>
+                            <p className="text-gray-500 text-xs text-center mt-6 italic px-4">Dica: Você também pode arrastar esses botões diretamente para o mapa!</p>
+                        </div>
+                    )}
+
+                    {activeTab === 'audio' && (
+                        <div className="animate-in fade-in slide-in-from-right-4 duration-300"><Soundboard /></div>
+                    )}
+                </div>
+            </div>
+        )}
       </div>
     </>
   );

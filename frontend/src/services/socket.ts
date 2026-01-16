@@ -1,6 +1,6 @@
 import { io } from 'socket.io-client';
 
-// Conecta ao servidor que configuramos na porta 4000
-const socket = io('http://localhost:4000');
+// Ajuste para a porta 4000 (que é onde seu backend Docker está rodando)
+const socket = io('http://localhost:4000'); 
 
 export default socket;

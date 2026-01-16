@@ -1,94 +1,73 @@
-import React, { useState, useEffect, useRef } from 'react';
-import socket from '../services/socket';
+import React, { useEffect, useRef, useState } from 'react';
 
-interface Message {
+// --- CORREÇÃO: A palavra 'export' é OBRIGATÓRIA aqui ---
+export interface ChatMessage {
   id: string;
-  user: string;
+  sender: string;
   text: string;
-  type: 'chat' | 'roll' | 'system';
-  color?: string;
+  type: 'info' | 'roll' | 'damage' | 'chat'; 
+  timestamp: string;
 }
 
-const Chat = () => {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState('');
-  const chatEndRef = useRef<HTMLDivElement>(null);
-  const roomId = 'mesa-do-victor'; // ID fixo da sua mesa
+interface ChatProps {
+  messages: ChatMessage[];
+  onSendMessage: (text: string) => void;
+  role: 'DM' | 'PLAYER';
+}
 
-  const scrollToBottom = () => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
+const Chat: React.FC<ChatProps> = ({ messages, onSendMessage, role }) => {
+  const [input, setInput] = useState('');
+  const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // 1. Entra na sala ao montar o componente para receber atualizações
-    socket.emit('joinRoom', { roomId, userId: 'Necromante' });
+    endRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
-    // Escuta mensagens de texto enviadas manualmente
-    socket.on('chatMessage', (msg: Message) => {
-      setMessages(prev => [...prev, msg]);
-    });
-
-    // 2. Escuta o log automático de dados para exibir o valor no chat
-    socket.on('newDiceResult', (data: { user: string, sides: number, result: number }) => {
-      const rollMsg: Message = {
-        id: Math.random().toString(),
-        user: 'SISTEMA',
-        text: `${data.user} rolou d${data.sides} e tirou ${data.result}`,
-        type: 'roll',
-        color: '#e94560' // Vermelho destaque Ordem Paranormal
-      };
-      setMessages(prev => [...prev, rollMsg]);
-    });
-
-    return () => { 
-      socket.off('chatMessage');
-      socket.off('newDiceResult'); 
-    };
-  }, []); 
-
-  useEffect(scrollToBottom, [messages]);
-
-  const sendMessage = (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim()) return;
-
-    const newMessage: Message = {
-      id: Math.random().toString(),
-      user: 'Necromante',
-      text: input,
-      type: 'chat'
-    };
-
-    // Envia a mensagem para a sala específica no servidor
-    socket.emit('sendMessage', { roomId: 'mesa-do-victor', ...newMessage });
-    
-    // Opcional: Remova a linha abaixo se o seu server.ts já estiver usando io.in 
-    // para evitar mensagens duplicadas no seu próprio chat.
-    setMessages(prev => [...prev, newMessage]);
+    onSendMessage(input);
     setInput('');
   };
 
   return (
-    <div className="flex flex-col h-[400px] bg-black/40 border-t border-rpgAccent/20 font-mono">
-      <div className="flex-grow overflow-y-auto p-4 space-y-2 scrollbar-thin scrollbar-thumb-rpgAccent">
+    <div className="flex flex-col h-48 bg-black/40 border-t border-rpgAccent/20 font-mono text-xs">
+      <div className="flex-grow overflow-y-auto p-2 space-y-1 custom-scrollbar">
         {messages.map((msg) => (
-          <div key={msg.id} className={`text-[11px] ${msg.type === 'roll' ? 'italic' : ''}`}>
-            <span style={{ color: msg.color || '#4a148c' }} className="font-bold uppercase mr-2">
-              [{msg.user}]:
+          <div key={msg.id} className="leading-tight break-words">
+            <span className="text-white/30 text-[9px] mr-2">[{msg.timestamp}]</span>
+            {msg.type === 'chat' && (
+              <span className="font-bold text-blue-400 mr-1 uppercase">
+                {msg.sender}:
+              </span>
+            )}
+            <span className={`
+              ${msg.type === 'damage' ? 'text-red-500 font-bold' : ''}
+              ${msg.type === 'roll' ? 'text-yellow-400 font-bold italic' : ''}
+              ${msg.type === 'info' ? 'text-gray-500 italic' : ''}
+              ${msg.type === 'chat' ? 'text-gray-200' : ''}
+            `}>
+              {msg.text}
             </span>
-            <span className="text-rpgText">{msg.text}</span>
           </div>
         ))}
-        <div ref={chatEndRef} />
+        <div ref={endRef} />
       </div>
 
-      <form onSubmit={sendMessage} className="p-2 border-t border-rpgAccent/10 bg-black/20">
-        <input
+      <form onSubmit={handleSubmit} className="p-2 border-t border-white/5 bg-black/20 flex gap-2">
+        <input 
+          type="text" 
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Digite sua ação..."
-          className="w-full bg-transparent text-[11px] text-rpgText focus:outline-none placeholder:opacity-30"
+          placeholder={`Falar como ${role === 'DM' ? 'Mestre' : 'Jogador'}...`}
+          className="flex-grow bg-transparent text-white outline-none placeholder:text-white/20 text-[11px]"
         />
+        <button 
+          type="submit" 
+          className="text-[10px] bg-blue-900/30 hover:bg-blue-700/50 text-blue-200 px-2 py-1 rounded border border-blue-500/20 transition-all"
+        >
+          ENVIAR
+        </button>
       </form>
     </div>
   );
