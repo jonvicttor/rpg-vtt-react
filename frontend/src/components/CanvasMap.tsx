@@ -423,7 +423,11 @@ const CanvasMap: React.FC<CanvasMapProps> = ({
             <>
               <div>ZOOM: {scale.toFixed(2)}x</div>
               <div className="text-yellow-400 font-bold mt-1">RÉGUA: SEGURE 'M' + ARRASTAR</div>
-              <div className="text-gray-500">MAPA: CTRL + ARRASTAR | GIRAR: SHIFT + SCROLL</div>
+              <div className="text-yellow-400 font-bold mt-1">MAPA: CTRL + ARRASTAR</div>
+              <div className="text-yellow-400 font-bold mt-1">GIRAR: SHIFT + SCROLL</div>
+              <div className="text-yellow-400 font-bold mt-1">REDIMENSIONAR: ALT + SCROLL</div>
+              <div className="text-yellow-400 font-bold mt-1">VIRAR TOKEN: SELECIONE É APERTE F</div>
+              <div className="text-yellow-400 font-bold mt-1">STATUS BAR: ALT + DOUBLE CLICK</div>
             </>
           )
         )}

@@ -10,22 +10,34 @@ const io = new Server(fastify.server, {
 });
 
 // --- 1. CONFIGURAÇÃO DO MAPA ---
-const MAP_LIMIT = 8000; // Ajustado para 8000 para sincronizar com o frontend
-const COLS = Math.ceil(MAP_LIMIT / 70);
-const ROWS = Math.ceil(MAP_LIMIT / 70);
+const MAP_LIMIT = 8000; 
+const GRID_SIZE = 70;
+const COLS = Math.ceil(MAP_LIMIT / GRID_SIZE);
+const ROWS = Math.ceil(MAP_LIMIT / GRID_SIZE);
 
 const createInitialFog = () => Array(ROWS).fill(null).map(() => Array(COLS).fill(false));
 
-// --- 2. ESTADO INICIAL ---
-const DATA_FILE = path.resolve(__dirname, 'savegame_v2.json');
+// --- 2. ESTADO INICIAL COM TIPAGEM (CORREÇÃO DO ERRO 'NEVER') ---
+// Definimos uma interface para explicar ao TypeScript o que esperar
+interface GameState {
+  entities: any[];
+  fogGrid: boolean[][];
+  currentMap: string;
+  initiativeList: any[];
+  activeTurnId: number | null;
+  chatHistory: any[];
+}
 
-let currentGameState = {
-  entities: [] as any[],
+// CORREÇÃO DO CAMINHO: Usamos process.cwd() que é mais seguro e evita erro de 'import.meta'
+const DATA_FILE = path.join(process.cwd(), 'savegame_v2.json');
+
+let currentGameState: GameState = {
+  entities: [], // Agora ele sabe que isso é uma lista de 'any', não 'never'
   fogGrid: createInitialFog(), 
   currentMap: '/maps/floresta.jpg',
-  initiativeList: [] as any[],
-  activeTurnId: null as number | null,
-  chatHistory: [] as any[] 
+  initiativeList: [],
+  activeTurnId: null,
+  chatHistory: [] 
 };
 
 // --- 3. CARREGAR SAVE (Se existir) ---
@@ -34,6 +46,7 @@ if (fs.existsSync(DATA_FILE)) {
     const rawData = fs.readFileSync(DATA_FILE, 'utf-8');
     const loadedData = JSON.parse(rawData);
     
+    // Mescla os dados com cuidado
     currentGameState = { ...currentGameState, ...loadedData };
 
     // SEGURANÇA: Corrige grade se o tamanho estiver errado
@@ -58,7 +71,24 @@ io.on('connection', (socket) => {
     console.log(`👤 Usuário entrou na sala: ${roomId}`);
   });
 
-  // Trocando o mapa e resetando neblina
+  // --- PERSISTÊNCIA: O EVENTO QUE ESTAVA FALTANDO ---
+  socket.on('checkExistingCharacter', (data) => {
+    console.log(`🔎 Verificando existência de: ${data.name}`);
+    
+    const existingChar = currentGameState.entities.find(
+      (e: any) => e.type === 'player' && e.name.toLowerCase() === data.name.toLowerCase()
+    );
+
+    if (existingChar) {
+      console.log(`✅ Personagem encontrado! Enviando dados de ${data.name}.`);
+      socket.emit('characterFound', existingChar);
+    } else {
+      console.log(`🆕 Personagem ${data.name} não encontrado. Liberando criação.`);
+      socket.emit('characterNotFound');
+    }
+  });
+
+  // Trocando o mapa
   socket.on('changeMap', (data) => {
     const newFog = createInitialFog();
     currentGameState.currentMap = data.mapUrl;
@@ -70,7 +100,7 @@ io.on('connection', (socket) => {
     });
   });
 
-  // Persistência Manual (Botão Salvar)
+  // Salvar Jogo
   socket.on('saveGame', (data) => {
     console.log(`📥 PERSISTINDO DADOS NO DISCO...`);
     currentGameState = {
@@ -80,6 +110,7 @@ io.on('connection', (socket) => {
         currentMap: data.currentMap,
         initiativeList: data.initiativeList,
         activeTurnId: data.activeTurnId,
+        chatHistory: data.chatMessages || []
     };
 
     try {
@@ -110,8 +141,12 @@ io.on('connection', (socket) => {
   });
 
   socket.on('createEntity', (data) => {
-    currentGameState.entities.push(data.entity);
-    socket.to(data.roomId).emit('entityCreated', data);
+    // EVITA DUPLICATAS
+    const exists = currentGameState.entities.find((e: any) => e.id === data.entity.id);
+    if (!exists) {
+        currentGameState.entities.push(data.entity);
+        socket.to(data.roomId).emit('entityCreated', data);
+    }
   });
 
   socket.on('deleteEntity', (data) => {
@@ -138,8 +173,9 @@ io.on('connection', (socket) => {
     socket.to(data.roomId).emit('initiativeUpdated', data);
   });
 
-  // Chat e Dados
   socket.on('sendMessage', (data) => {
+    currentGameState.chatHistory.push(data.message);
+    if (currentGameState.chatHistory.length > 50) currentGameState.chatHistory.shift();
     io.in(data.roomId).emit('chatMessage', data);
   });
 
@@ -151,10 +187,7 @@ io.on('connection', (socket) => {
     io.to(data.roomId).emit('triggerAudio', data); 
   });
 
-  // --- NOVA FUNCIONALIDADE: SINCRONIA DO MAPA ---
   socket.on('syncMapState', (data) => {
-    // data = { roomId, offset, scale }
-    // Envia para todos na sala (exceto quem enviou)
     socket.to(data.roomId).emit('mapStateUpdated', {
       offset: data.offset,
       scale: data.scale

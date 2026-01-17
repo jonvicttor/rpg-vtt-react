@@ -125,7 +125,6 @@ function App() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   
   const [statusSelectionId, setStatusSelectionId] = useState<number | null>(null);
-  // --- NOVO ESTADO: Controla qual entidade está sendo editada pelo Mestre ---
   const [editingEntity, setEditingEntity] = useState<Entity | null>(null);
 
   const [mapOffset, setMapOffset] = useState({ x: 0, y: 0 });
@@ -218,7 +217,6 @@ function App() {
     };
   }, [playSound, isLoggedIn, addLog, role, statusSelectionId]); 
 
-  // --- ATUALIZA POSIÇÃO LOCAL (PAN/ZOOM) IMEDIATAMENTE PARA O STATUS ACOMPANHAR ---
   const handleMapSync = (offset: {x: number, y: number}, scale: number) => {
     setMapOffset(offset);
     setMapScale(scale);
@@ -403,6 +401,7 @@ function App() {
   const handleSetAttacker = (id: number | null) => { if (role !== 'DM') return; setAttackerId(id); };
   const handleSelectEntityForStatus = (entity: Entity) => { setStatusSelectionId(entity.id); };
   
+  // --- LOGIN ATUALIZADO COM PERSISTÊNCIA (ITEM 1) ---
   const handleLogin = (selectedRole: 'DM' | 'PLAYER', name: string, charData?: any) => {
     setRole(selectedRole); 
     setPlayerName(name); 
@@ -413,22 +412,36 @@ function App() {
     if (selectedRole === 'PLAYER' && charData) {
         setTimeout(() => {
             const charExists = entities.find(e => e.name.toLowerCase() === name.toLowerCase());
+
             if (!charExists) {
+                // Cria com os dados (novos ou persistidos)
                 const newEntity: Entity = { 
-                    id: Date.now(), 
+                    id: charData.id || Date.now(), 
                     name, 
-                    hp: charData.hp, maxHp: charData.maxHp, 
+                    hp: charData.hp, 
+                    maxHp: charData.maxHp, 
                     ac: charData.ac, 
-                    x: 8, y: 6, // Ponto de spawn visível
-                    rotation: 0, mirrored: false, conditions: [], color: '#3b82f6', type: 'player', 
-                    image: charData.image, stats: charData.stats, classType: charData.classType, 
-                    visionRadius: 9, size: charData.size || 2,
+                    x: charData.x !== undefined ? charData.x : 8, 
+                    y: charData.y !== undefined ? charData.y : 6,
+                    rotation: charData.rotation || 0, 
+                    mirrored: charData.mirrored || false, 
+                    conditions: charData.conditions || [], 
+                    color: '#3b82f6', 
+                    type: 'player', 
+                    image: charData.image, 
+                    stats: charData.stats, 
+                    classType: charData.classType, 
+                    visionRadius: 9, 
+                    size: charData.size || 2,
                     xp: charData.xp || 0,
                     level: charData.level || 1
                 };
+                
                 setEntities(prev => [...prev, newEntity]);
                 socket.emit('createEntity', { entity: newEntity, roomId: ROOM_ID });
                 addLog(`${name} entrou na mesa!`, 'info');
+            } else {
+                addLog(`Bem vindo de volta, ${name}!`, 'info');
             }
         }, 800); 
     }
@@ -643,7 +656,14 @@ function App() {
               onOpenCreator={(type) => { if (type === 'player') setShowAllyCreator(true); if (type === 'enemy') setShowEnemyCreator(true); }}
               onAddXP={handleAddXP} 
             /> 
-          : <SidebarPlayer entities={entities} initiativeList={initiativeList} activeTurnId={activeTurnId} chatMessages={chatMessages} onSendMessage={handleSendMessage} onRollAttribute={handleAttributeRoll}
+          : <SidebarPlayer 
+              entities={entities} 
+              myCharacterName={playerName} // PASSA O NOME DO LOGIN AQUI
+              initiativeList={initiativeList} 
+              activeTurnId={activeTurnId} 
+              chatMessages={chatMessages} 
+              onSendMessage={handleSendMessage} 
+              onRollAttribute={handleAttributeRoll}
               onUpdateCharacter={handleEditEntity} 
             />
         }
