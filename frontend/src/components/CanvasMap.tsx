@@ -26,10 +26,16 @@ interface CanvasMapProps {
   aoeColor: string;
   onSelectEntity: (entity: Entity, x: number, y: number) => void;
 
-  // --- NOVAS PROPS DE SINCRONIA ---
+  // Props de Sincronia
   externalOffset?: { x: number, y: number };
   externalScale?: number;
   onMapChange?: (offset: { x: number, y: number }, scale: number) => void;
+  
+  // Prop de Foco (Item 2)
+  focusEntity?: Entity | null;
+  
+  // Prop de Brilho/Dia e Noite (Item 3)
+  globalBrightness?: number; // 1.0 = Dia, 0.0 = Breu
 }
 
 interface FloatingText {
@@ -54,9 +60,9 @@ const CanvasMap: React.FC<CanvasMapProps> = ({
   onTokenDoubleClick, targetEntityIds, attackerId, onSetTarget, onSetAttacker,
   onFlipToken, activeAoE, onAoEComplete, aoeColor,
   onSelectEntity,
-  
-  // Recebendo as novas props
-  externalOffset, externalScale, onMapChange
+  externalOffset, externalScale, onMapChange,
+  focusEntity,
+  globalBrightness = 1 // Valor padrão: 1 (Dia Claro)
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [offset, setOffset] = useState({ x: 0, y: 0 }); 
@@ -69,6 +75,22 @@ const CanvasMap: React.FC<CanvasMapProps> = ({
         setScale(externalScale);
     }
   }, [externalOffset, externalScale, role]);
+
+  // --- EFEITO PARA FOCAR NA ENTIDADE (Item 2) ---
+  useEffect(() => {
+    if (focusEntity && canvasRef.current) {
+        const canvas = canvasRef.current;
+        // Calcula o centro do token em pixels reais
+        const entityX = focusEntity.x * gridSize + (gridSize * (focusEntity.size || 1)) / 2;
+        const entityY = focusEntity.y * gridSize + (gridSize * (focusEntity.size || 1)) / 2;
+
+        // Centraliza a câmera nesse ponto
+        const newOffsetX = (canvas.width / 2) - (entityX * scale);
+        const newOffsetY = (canvas.height / 2) - (entityY * scale);
+
+        setOffset({ x: newOffsetX, y: newOffsetY });
+    }
+  }, [focusEntity, gridSize, scale]); // Removida dependência cíclica onMapChange/role para foco local
 
   const [isPanning, setIsPanning] = useState(false);
   const [lastMousePos, setLastMousePos] = useState({ x: 0, y: 0 });
@@ -92,9 +114,7 @@ const CanvasMap: React.FC<CanvasMapProps> = ({
   useEffect(() => { 
     entities.forEach(ent => { 
         if (ent.image && !tokenImages[ent.image]) { 
-            const img = new Image(); 
-            img.src = ent.image; 
-            img.onload = () => setTokenImages(prev => ({ ...prev, [ent.image!]: img })); 
+            const img = new Image(); img.src = ent.image; img.onload = () => setTokenImages(prev => ({ ...prev, [ent.image!]: img })); 
         } 
     }); 
   }, [entities, tokenImages]);
@@ -161,40 +181,24 @@ const CanvasMap: React.FC<CanvasMapProps> = ({
     if (entity.id === activeTurnId) {
         ctx.save();
         const pulse = Math.sin(Date.now() / 500) * 5 + 5;
-        ctx.shadowColor = "#fbbf24"; 
-        ctx.shadowBlur = 20 + pulse;
-        ctx.strokeStyle = "#fbbf24";
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.ellipse(x + size / 2, y + size / 2, size / 1.7 + pulse/5, size / 1.7 + pulse/5, 0, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.restore();
+        ctx.shadowColor = "#fbbf24"; ctx.shadowBlur = 20 + pulse; ctx.strokeStyle = "#fbbf24"; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.ellipse(x + size / 2, y + size / 2, size / 1.7 + pulse/5, size / 1.7 + pulse/5, 0, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
     }
 
-    ctx.save();
-    ctx.fillStyle = "rgba(0, 0, 0, 0.4)"; ctx.beginPath(); ctx.ellipse(x + size / 2, y + size - 5, size / 2.5, size / 5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.save(); ctx.fillStyle = "rgba(0, 0, 0, 0.4)"; ctx.beginPath(); ctx.ellipse(x + size / 2, y + size - 5, size / 2.5, size / 5, 0, 0, Math.PI * 2); ctx.fill();
     
-    const isAttacker = entity.id === attackerId; 
-    const isTarget = targetEntityIds.includes(entity.id);
+    const isAttacker = entity.id === attackerId; const isTarget = targetEntityIds.includes(entity.id);
     if (isAttacker || isTarget) {
-        ctx.lineWidth = 3 / scale; 
-        ctx.strokeStyle = isAttacker ? "#3b82f6" : "#ef4444";
-        ctx.shadowColor = ctx.strokeStyle; 
-        ctx.shadowBlur = 15; 
+        ctx.lineWidth = 3 / scale; ctx.strokeStyle = isAttacker ? "#3b82f6" : "#ef4444"; ctx.shadowColor = ctx.strokeStyle; ctx.shadowBlur = 15; 
         ctx.beginPath(); ctx.ellipse(x + size / 2, y + size / 2, size / 1.8, size / 1.8, 0, 0, Math.PI * 2); ctx.stroke();
     }
 
     if (tokenImage) {
-      ctx.save(); 
-      ctx.translate(x + size / 2, y + size / 2); 
-      ctx.rotate(((entity.rotation || 0) * Math.PI) / 180);
+      ctx.save(); ctx.translate(x + size / 2, y + size / 2); ctx.rotate(((entity.rotation || 0) * Math.PI) / 180);
       if (entity.mirrored) ctx.scale(-1, 1);
       if (isDead) { ctx.filter = 'grayscale(100%) brightness(50%) contrast(120%)'; ctx.globalAlpha = 0.8; }
-      ctx.drawImage(tokenImage, -size / 2, -size / 2, size, size); 
-      ctx.restore(); 
-      if (isDead) {
-          ctx.save(); ctx.translate(x + size / 2, y + size / 2); ctx.font = `${size / 1.5}px sans-serif`; ctx.textAlign = "center"; ctx.fillText("💀", 0, -10); ctx.restore();
-      }
+      ctx.drawImage(tokenImage, -size / 2, -size / 2, size, size); ctx.restore(); 
+      if (isDead) { ctx.save(); ctx.translate(x + size / 2, y + size / 2); ctx.font = `${size / 1.5}px sans-serif`; ctx.textAlign = "center"; ctx.fillText("💀", 0, -10); ctx.restore(); }
     } else {
       ctx.fillStyle = isDead ? '#4b5563' : entity.color; ctx.beginPath(); ctx.arc(x + size/2, y + size/2, size/3, 0, Math.PI*2); ctx.fill();
       if (isDead) { ctx.fillStyle = "white"; ctx.font = `${size / 2}px sans-serif`; ctx.textAlign = "center"; ctx.fillText("💀", x + size / 2, y + size / 2); }
@@ -207,12 +211,13 @@ const CanvasMap: React.FC<CanvasMapProps> = ({
         const iconSize = size / 3.5;
         entity.conditions.forEach((cond, index) => {
             const icon = CONDITIONS_ICONS[cond] || '❓';
-            ctx.font = `${iconSize}px sans-serif`; ctx.textAlign = "center"; 
-            ctx.fillText(icon, (x + size/2) - (entity.conditions.length * iconSize / 2) + (index * iconSize) + (iconSize / 2), y + size + (28 / scale));
+            const xOffset = (index - (entity.conditions.length - 1) / 2) * iconSize;
+            ctx.font = `${iconSize}px sans-serif`; ctx.textAlign = "center"; ctx.fillText(icon, x + size / 2 + xOffset, y + size + (28 / scale));
         });
     }
   }, [scale, activeTurnId, targetEntityIds, attackerId]);
 
+  // --- RENDERIZAÇÃO DO CANVAS ---
   useEffect(() => {
     const canvas = canvasRef.current; if (!canvas || !mapImage) return;
     const ctx = canvas.getContext('2d'); if (!ctx) return;
@@ -225,8 +230,10 @@ const CanvasMap: React.FC<CanvasMapProps> = ({
     ctx.translate(offset.x, offset.y); 
     ctx.scale(scale, scale);
     
+    // Desenha Mapa
     ctx.drawImage(mapImage, 0, 0, mapImage.width, mapImage.height);
 
+    // Desenha Tokens
     [...entities].sort((a, b) => a.y - b.y).forEach(ent => {
         const tokenScale = ent.size || 1;
         const actualSize = gridSize * tokenScale;
@@ -239,6 +246,17 @@ const CanvasMap: React.FC<CanvasMapProps> = ({
         drawToken(ctx, ent, dx, dy, actualSize, tokenImages);
     });
 
+    // --- DESENHA A ESCURIDÃO (Item 3) ---
+    if (globalBrightness < 1) {
+        ctx.save();
+        ctx.fillStyle = "#000000";
+        ctx.globalAlpha = 1 - globalBrightness; // 0.3 brilho = 0.7 opacidade preta
+        ctx.fillRect(0, 0, mapImage.width, mapImage.height);
+        ctx.restore();
+    }
+    // ------------------------------------
+
+    // Desenha Neblina (DM ou Player)
     if (fogGrid) {
       ctx.fillStyle = "#000000"; 
       ctx.globalAlpha = role === 'DM' ? 0.6 : 1.0; 
@@ -285,7 +303,7 @@ const CanvasMap: React.FC<CanvasMapProps> = ({
     });
 
     ctx.restore();
-  }, [mapImage, entities, offset, scale, draggingEntityId, mousePos, gridSize, tokenImages, drawToken, fogGrid, role, targetEntityIds, attackerId, measureStart, aoeStart, activeAoE, floatingTexts, aoeColor, activeTurnId]);
+  }, [mapImage, entities, offset, scale, draggingEntityId, mousePos, gridSize, tokenImages, drawToken, fogGrid, role, targetEntityIds, attackerId, measureStart, aoeStart, activeAoE, floatingTexts, aoeColor, activeTurnId, globalBrightness]); // Adicionado globalBrightness
 
   const handleWheel = (e: React.WheelEvent) => {
     const rect = canvasRef.current!.getBoundingClientRect();
@@ -311,11 +329,9 @@ const CanvasMap: React.FC<CanvasMapProps> = ({
         if (hoveredEntity) { onRotateToken(hoveredEntity.id, (hoveredEntity.rotation || 0) + (e.deltaY > 0 ? 15 : -15)); return; }
     }
 
-    // ZOOM CONTROLADO
     const newScale = Math.min(Math.max(0.1, scale - e.deltaY * 0.001), 5);
     setScale(newScale);
     
-    // --- ENVIA PARA O SERVER SE FOR MESTRE ---
     if (role === 'DM' && onMapChange) {
         onMapChange(offset, newScale);
     }
@@ -363,11 +379,7 @@ const CanvasMap: React.FC<CanvasMapProps> = ({
         const newOffset = { x: offset.x + (e.clientX - lastMousePos.x), y: offset.y + (e.clientY - lastMousePos.y) };
         setOffset(newOffset);
         setLastMousePos({ x: e.clientX, y: e.clientY });
-
-        // --- ENVIA PARA O SERVER SE FOR MESTRE ---
-        if (role === 'DM' && onMapChange) {
-            onMapChange(newOffset, scale);
-        }
+        if (role === 'DM' && onMapChange) { onMapChange(newOffset, scale); }
     }
   };
 
@@ -416,10 +428,9 @@ const CanvasMap: React.FC<CanvasMapProps> = ({
         }}
       />
       
-      {/* EXIBIR ATALHOS APENAS SE FOR MESTRE (DM) */}
       <div className="absolute top-4 right-4 pointer-events-none text-white/20 text-xs font-mono text-right">
         {isFogMode ? <span className="text-yellow-400 font-bold">NEBLINA: {fogTool === 'reveal' ? 'REVELAR' : 'ESCONDER'}</span> : (
-          role === 'DM' && ( // SÓ EXIBE SE FOR DM
+          role === 'DM' && ( 
             <>
               <div>ZOOM: {scale.toFixed(2)}x</div>
               <div className="text-yellow-400 font-bold mt-1">RÉGUA: SEGURE 'M' + ARRASTAR</div>

@@ -8,14 +8,32 @@ import LoginScreen from './components/LoginScreen';
 import { ChatMessage } from './components/Chat';
 import EditEntityModal from './components/EditEntityModal';
 import MonsterCreatorModal from './components/MonsterCreatorModal';
+import BaldursDiceRoller, { RollBonus } from './components/BaldursDiceRoller'; 
 
 // --- IMPORTANDO AS REGRAS DE JOGO ---
 import { getLevelFromXP } from './utils/gameRules';
 
 const ROOM_ID = 'mesa-do-victor'; 
-const GRID_SIZE = 70; // Tamanho padrão do grid
+const GRID_SIZE = 70; 
 const CANVAS_WIDTH = 1920; 
 const CANVAS_HEIGHT = 1080; 
+
+// --- INTERFACES ---
+export interface Item {
+  id: string;
+  name: string;
+  description: string;
+  image: string;
+  type: 'weapon' | 'armor' | 'potion' | 'misc';
+  quantity: number;
+  weight?: number;
+  value?: string;
+  stats?: {
+    damage?: string;
+    armorClass?: number;
+    properties?: string[];
+  };
+}
 
 export interface Entity {
   id: number;
@@ -37,9 +55,9 @@ export interface Entity {
   };
   classType?: string;
   size?: number; 
-  
   xp?: number;
   level?: number;
+  inventory?: Item[]; 
 }
 
 export interface MonsterPreset {
@@ -50,6 +68,7 @@ export interface MonsterPreset {
   size?: number;
 }
 
+// Modal de Iniciativa (Inline)
 const InitiativeModal = ({ entity, onClose, onConfirm }: { entity: Entity, onClose: () => void, onConfirm: (val: number) => void }) => {
   const [manualValue, setManualValue] = useState('');
   const dexMod = entity.stats ? Math.floor((entity.stats.dex - 10) / 2) : 0;
@@ -77,27 +96,6 @@ const InitiativeModal = ({ entity, onClose, onConfirm }: { entity: Entity, onClo
   );
 };
 
-const DiceRoller = ({ playDiceSound, addLog }: { playDiceSound: () => void, addLog: (text: string, type: 'roll' | 'info' | 'damage' | 'chat', sender?: string) => void }) => {
-  const [result, setResult] = useState<number | string>('--');
-  const rollDice = (sides: number) => {
-    const roll = Math.floor(Math.random() * sides) + 1;
-    setResult(roll);
-    playDiceSound();
-    addLog(`Rolou 1d${sides}: [ ${roll} ]`, 'roll', 'Jogador');
-    socket.emit('rollDice', { sides, result: roll, roomId: ROOM_ID, user: 'Player' });
-  };
-  return (
-    <div className="bg-rpgPanel/90 border border-rpgAccent/30 rounded-lg p-4 w-32 h-auto flex flex-col items-center shadow-2xl backdrop-blur-sm">
-      <span className="text-[8px] text-rpgText opacity-50 uppercase font-mono tracking-widest mb-2 text-center text-white/40">Painel de Dados</span>
-      <div className="text-3xl font-bold text-rpgAccent my-2 font-mono drop-shadow-[0_0_8px_rgba(255,0,0,0.5)]">{result}</div>
-      <div className="grid grid-cols-2 gap-2 w-full mt-2">
-        <button onClick={() => rollDice(20)} className="bg-rpgAccent hover:bg-rpgAccent/80 text-white text-[10px] font-bold py-2 rounded transition-all active:scale-95 shadow-lg">d20</button>
-        <button onClick={() => rollDice(6)} className="bg-rpgAccent/40 hover:bg-rpgAccent/60 text-white text-[10px] font-bold py-2 rounded transition-all active:scale-95 shadow-lg">d6</button>
-      </div>
-    </div>
-  );
-};
-
 const createInitialFog = () => {
     const MAP_LIMIT = 8000; 
     const COLS = Math.ceil(MAP_LIMIT / GRID_SIZE);
@@ -119,13 +117,15 @@ function App() {
   const [targetEntityIds, setTargetEntityIds] = useState<number[]>([]);
   const [attackerId, setAttackerId] = useState<number | null>(null);
   const [activeAoE, setActiveAoE] = useState<'circle' | 'cone' | 'cube' | null>(null);
-  
   const [aoeColor, setAoEColor] = useState<string>('#ef4444'); 
   const [initModalEntity, setInitModalEntity] = useState<Entity | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-  
   const [statusSelectionId, setStatusSelectionId] = useState<number | null>(null);
   const [editingEntity, setEditingEntity] = useState<Entity | null>(null);
+
+  const [customMonsters, setCustomMonsters] = useState<MonsterPreset[]>([]); 
+  const [focusEntity, setFocusEntity] = useState<Entity | null>(null);       
+  const [globalBrightness, setGlobalBrightness] = useState(1);               
 
   const [mapOffset, setMapOffset] = useState({ x: 0, y: 0 });
   const [mapScale, setMapScale] = useState(1);
@@ -133,6 +133,20 @@ function App() {
 
   const [showAllyCreator, setShowAllyCreator] = useState(false);
   const [showEnemyCreator, setShowEnemyCreator] = useState(false);
+
+  // --- ESTADOS DO NOVO DADO BG3 ---
+  const [showBgDice, setShowBgDice] = useState(false);
+  
+  // CORREÇÃO: Usando RollBonus[] na tipagem do estado
+  const [diceContext, setDiceContext] = useState({
+      title: 'Teste Geral',
+      subtitle: 'Sorte',
+      dc: 10,
+      mod: 0,   
+      prof: 0,  
+      bonuses: [] as RollBonus[], 
+      rollType: 'normal' as 'normal' | 'advantage' | 'disadvantage'
+  });
 
   useEffect(() => {
     const handleResize = () => setWindowSize({ w: window.innerWidth, h: window.innerHeight });
@@ -177,6 +191,8 @@ function App() {
       if (gameState.initiativeList) setInitiativeList(gameState.initiativeList);
       if (gameState.activeTurnId) setActiveTurnId(gameState.activeTurnId);
       if (gameState.chatHistory) setChatMessages(gameState.chatHistory);
+      if (gameState.customMonsters) setCustomMonsters(gameState.customMonsters);
+      if (gameState.globalBrightness !== undefined) setGlobalBrightness(gameState.globalBrightness);
     });
     socket.on('notification', (data) => { alert(data.message); });
     socket.on('newDiceResult', () => playSound('dado'));
@@ -211,9 +227,12 @@ function App() {
           setMapScale(data.scale);
       }
     });
+    socket.on('globalBrightnessUpdated', (data) => {
+        setGlobalBrightness(data.brightness);
+    });
 
     return () => {
-      socket.off('connect', joinRoom); socket.off('gameStateSync'); socket.off('notification'); socket.off('newDiceResult'); socket.off('chatMessage'); socket.off('entityPositionUpdated'); socket.off('entityStatusUpdated'); socket.off('entityCreated'); socket.off('entityDeleted'); socket.off('mapChanged'); socket.off('fogUpdated'); socket.off('fogGridSynced'); socket.off('initiativeUpdated'); socket.off('triggerAudio'); socket.off('mapStateUpdated');
+      socket.off('connect', joinRoom); socket.off('gameStateSync'); socket.off('notification'); socket.off('newDiceResult'); socket.off('chatMessage'); socket.off('entityPositionUpdated'); socket.off('entityStatusUpdated'); socket.off('entityCreated'); socket.off('entityDeleted'); socket.off('mapChanged'); socket.off('fogUpdated'); socket.off('fogGridSynced'); socket.off('initiativeUpdated'); socket.off('triggerAudio'); socket.off('mapStateUpdated'); socket.off('globalBrightnessUpdated');
     };
   }, [playSound, isLoggedIn, addLog, role, statusSelectionId]); 
 
@@ -227,11 +246,39 @@ function App() {
   };
 
   const handleAttributeRoll = (charName: string, attrName: string, mod: number) => {
-      const d20 = Math.floor(Math.random() * 20) + 1;
-      const total = d20 + mod;
-      const modLabel = mod >= 0 ? `+${mod}` : mod;
-      addLog(`${charName} fez teste de ${attrName}: [ ${d20} ] ${modLabel} = ${total}`, 'roll', charName);
-      playSound('dado');
+      setDiceContext({
+          title: attrName.toUpperCase(),
+          subtitle: `Teste de Habilidade (${charName})`,
+          dc: 10, 
+          mod: mod,
+          prof: 0, 
+          bonuses: [
+              { id: 'guidance', name: 'Guidance', value: '1d4', type: 'dice', active: false, icon: '✨' },
+              { id: 'bardic', name: 'Insp. Bardo', value: '1d6', type: 'dice', active: false, icon: '🎵' }
+          ],
+          rollType: 'normal'
+      });
+      setShowBgDice(true);
+  };
+
+  const handleDiceComplete = (total: number, isSuccess: boolean, isCritical: boolean) => {
+      const resultMsg = isCritical ? (total >= 20 ? "CRÍTICO! ⚔️" : "FALHA CRÍTICA! 💀") : (isSuccess ? "SUCESSO! ✅" : "FALHA ❌");
+      addLog(`🎲 **${role === 'DM' ? 'Mestre' : playerName}** rolou ${diceContext.title}: **${total}** (${resultMsg})`, 'roll', role === 'DM' ? 'Mestre' : playerName);
+      socket.emit('rollDice', { sides: 20, result: total, roomId: ROOM_ID, user: playerName || 'DM' });
+      setTimeout(() => setShowBgDice(false), 2000);
+  };
+
+  const openDiceRoller = () => {
+      setDiceContext({
+          title: 'Rolagem Geral',
+          subtitle: 'Teste de Sorte',
+          dc: 10,
+          mod: 0,
+          prof: 0,
+          bonuses: [],
+          rollType: 'normal'
+      });
+      setShowBgDice(true);
   };
 
   const handleAddXP = (id: number, amount: number) => {
@@ -332,7 +379,8 @@ function App() {
       visionRadius: 9, stats: customStats?.stats || { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 },
       classType: customStats?.classType || "NPC", size: customStats?.size || 2,
       xp: customStats?.xp || 0,
-      level: customStats?.level || 1
+      level: customStats?.level || 1,
+      inventory: customStats?.inventory || [] 
     };
     setEntities(prev => [...prev, newEntity]);
     socket.emit('createEntity', { entity: newEntity, roomId: ROOM_ID });
@@ -361,8 +409,31 @@ function App() {
   };
   
   const handleSaveGame = () => {
-    socket.emit('saveGame', { roomId: ROOM_ID, entities: entities, fogGrid: fogGrid, currentMap: currentMap, initiativeList: initiativeList, activeTurnId: activeTurnId, chatMessages: chatMessages });
+    socket.emit('saveGame', { 
+        roomId: ROOM_ID, 
+        entities: entities, 
+        fogGrid: fogGrid, 
+        currentMap: currentMap, 
+        initiativeList: initiativeList, 
+        activeTurnId: activeTurnId, 
+        chatMessages: chatMessages,
+        customMonsters: customMonsters,
+        globalBrightness: globalBrightness 
+    });
     addLog("O Mestre salvou o estado da mesa no servidor.", 'info');
+  };
+
+  const handleSaveMonsterPreset = (preset: MonsterPreset) => {
+      setCustomMonsters(prev => {
+          const newList = [...prev, preset];
+          return newList;
+      });
+      addLog(`Novo monstro salvo na lista: ${preset.name}`, 'info');
+  };
+
+  const handleUpdateGlobalBrightness = (val: number) => {
+      setGlobalBrightness(val);
+      socket.emit('updateGlobalBrightness', { brightness: val, roomId: ROOM_ID });
   };
 
   const handleAddToInitiative = (entity: Entity) => { if (initiativeList.find(i => i.id === entity.id)) return; setInitModalEntity(entity); };
@@ -401,20 +472,15 @@ function App() {
   const handleSetAttacker = (id: number | null) => { if (role !== 'DM') return; setAttackerId(id); };
   const handleSelectEntityForStatus = (entity: Entity) => { setStatusSelectionId(entity.id); };
   
-  // --- LOGIN ATUALIZADO COM PERSISTÊNCIA (ITEM 1) ---
   const handleLogin = (selectedRole: 'DM' | 'PLAYER', name: string, charData?: any) => {
     setRole(selectedRole); 
     setPlayerName(name); 
     setIsLoggedIn(true); 
-    
     socket.emit('joinRoom', ROOM_ID);
-
     if (selectedRole === 'PLAYER' && charData) {
         setTimeout(() => {
             const charExists = entities.find(e => e.name.toLowerCase() === name.toLowerCase());
-
             if (!charExists) {
-                // Cria com os dados (novos ou persistidos)
                 const newEntity: Entity = { 
                     id: charData.id || Date.now(), 
                     name, 
@@ -434,9 +500,9 @@ function App() {
                     visionRadius: 9, 
                     size: charData.size || 2,
                     xp: charData.xp || 0,
-                    level: charData.level || 1
+                    level: charData.level || 1,
+                    inventory: charData.inventory || [] 
                 };
-                
                 setEntities(prev => [...prev, newEntity]);
                 socket.emit('createEntity', { entity: newEntity, roomId: ROOM_ID });
                 addLog(`${name} entrou na mesa!`, 'info');
@@ -449,33 +515,16 @@ function App() {
 
   const selectedStatusEntity = statusSelectionId ? entities.find(e => e.id === statusSelectionId) : null;
 
-  // --- CÁLCULO DINÂMICO E PRECISO DA POSIÇÃO (CONSIDERANDO CENTRALIZAÇÃO) ---
   let modalPosition = { top: 0, left: 0 };
   if (selectedStatusEntity) {
       const canvasOffsetX = (windowSize.w - CANVAS_WIDTH) / 2;
       const canvasOffsetY = (windowSize.h - CANVAS_HEIGHT) / 2;
-
       const tokenPixelX = (selectedStatusEntity.x * GRID_SIZE * mapScale) + mapOffset.x + canvasOffsetX;
       const tokenPixelY = (selectedStatusEntity.y * GRID_SIZE * mapScale) + mapOffset.y + canvasOffsetY;
-      
       const tokenSize = (selectedStatusEntity.size || 1) * GRID_SIZE * mapScale;
-
-      // Padrão: Lado direito do token + 15px
-      modalPosition = {
-          top: tokenPixelY,
-          left: tokenPixelX + tokenSize + 15 
-      };
-
-      // Ajuste de colisão com a direita (largura aumentada para 320px + margem)
-      if (modalPosition.left + 330 > windowSize.w - 320) { 
-          modalPosition.left = tokenPixelX - 340; 
-      }
-
-      // Ajuste de colisão com baixo
-      if (modalPosition.top + 400 > windowSize.h) {
-          modalPosition.top = windowSize.h - 410;
-      }
-      
+      modalPosition = { top: tokenPixelY, left: tokenPixelX + tokenSize + 15 };
+      if (modalPosition.left + 330 > windowSize.w - 320) { modalPosition.left = tokenPixelX - 340; }
+      if (modalPosition.top + 400 > windowSize.h) { modalPosition.top = windowSize.h - 410; }
       if (modalPosition.top < 10) modalPosition.top = 10;
   }
 
@@ -498,7 +547,6 @@ function App() {
     <div className="flex h-screen w-screen overflow-hidden bg-rpgBg" onClick={() => { if (Howler.ctx && Howler.ctx.state !== 'running') Howler.ctx.resume(); }}>
       {initModalEntity && (<InitiativeModal entity={initModalEntity} onClose={() => setInitModalEntity(null)} onConfirm={handleSubmitInitiative} />)}
 
-      {/* --- MODAL DE EDIÇÃO (QUANDO MESTRE CLICA NO TOKEN DO STATUS) --- */}
       {editingEntity && (
           <EditEntityModal 
               entity={editingEntity} 
@@ -507,43 +555,25 @@ function App() {
           />
       )}
 
-      {/* --- MODAL DE STATUS DO TOKEN (MÉDIO E COLADO NO TOKEN) --- */}
       {selectedStatusEntity && (
         <div 
           className="fixed z-50 bg-gray-900/95 border-2 border-cyan-400 p-4 rounded-xl shadow-[0_0_30px_rgba(34,211,238,0.3)] text-cyan-50 w-80 backdrop-blur-md animate-in fade-in zoom-in duration-100 font-mono transition-all ease-linear"
-          style={{ 
-              top: modalPosition.top, 
-              left: modalPosition.left
-          }}
+          style={{ top: modalPosition.top, left: modalPosition.left }}
         >
-          {/* Cabeçalho */}
           <div className="flex justify-between items-center mb-3 pb-2 border-b border-cyan-400/40 relative">
             <h3 className="text-base font-black tracking-[0.15em] text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-blue-400">STATUS</h3>
             <button onClick={() => setStatusSelectionId(null)} className="text-cyan-500 hover:text-white transition-colors text-base font-bold">✕</button>
           </div>
-
           <div className="flex gap-3 mb-4">
-            {/* IMAGEM DO TOKEN (CLICÁVEL PARA MESTRE) */}
-            <div 
-                onClick={() => role === 'DM' && setEditingEntity(selectedStatusEntity)}
-                className={`w-16 h-16 rounded-lg border-2 border-cyan-400 overflow-hidden shrink-0 relative shadow-lg shadow-cyan-500/20 group ${role === 'DM' ? 'cursor-pointer' : ''}`}
-            >
+            <div onClick={() => role === 'DM' && setEditingEntity(selectedStatusEntity)} className={`w-16 h-16 rounded-lg border-2 border-cyan-400 overflow-hidden shrink-0 relative shadow-lg shadow-cyan-500/20 group ${role === 'DM' ? 'cursor-pointer' : ''}`}>
               {selectedStatusEntity.image ? (
                 <img src={selectedStatusEntity.image} alt={selectedStatusEntity.name} className="w-full h-full object-cover" />
               ) : (
                 <div className="w-full h-full flex items-center justify-center font-bold text-xl" style={{ backgroundColor: selectedStatusEntity.color }}>{selectedStatusEntity.name[0]}</div>
               )}
-              {/* Scanline CSS */}
               <div className="absolute inset-0 bg-[linear-gradient(transparent_50%,rgba(0,0,0,0.4)_50%)] bg-[length:100%_4px] pointer-events-none"></div>
-              
-              {/* HOVER EFFECT: EDITAR (SÓ MESTRE) */}
-              {role === 'DM' && (
-                  <div className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                      <span className="text-[10px] font-bold text-cyan-300 uppercase tracking-widest border border-cyan-300 px-1 rounded">Editar</span>
-                  </div>
-              )}
+              {role === 'DM' && (<div className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"><span className="text-[10px] font-bold text-cyan-300 uppercase tracking-widest border border-cyan-300 px-1 rounded">Editar</span></div>)}
             </div>
-
             <div className="flex flex-col justify-center gap-1 text-xs w-full">
               <div className="flex justify-between items-end border-b border-white/10 pb-1">
                   <span className="text-cyan-400 font-bold uppercase tracking-wider text-[10px]">Nome</span>
@@ -559,28 +589,17 @@ function App() {
               </div>
             </div>
           </div>
-
-          {/* Barra de Vida */}
           <div className="mb-4">
             <div className="flex justify-between text-[10px] font-bold mb-1 px-1 uppercase tracking-wider">
               <span className="text-cyan-400">Integridade</span>
               <span className={selectedStatusEntity.hp < selectedStatusEntity.maxHp / 2 ? "text-red-400" : "text-cyan-100"}>{selectedStatusEntity.hp} / {selectedStatusEntity.maxHp}</span>
             </div>
             <div className="w-full h-3 bg-gray-800 rounded border border-cyan-500/30 overflow-hidden relative shadow-inner">
-              <div 
-                className={`h-full transition-all duration-300 relative ${
-                  selectedStatusEntity.hp <= selectedStatusEntity.maxHp * 0.25 ? 'bg-red-600' : 
-                  selectedStatusEntity.hp <= selectedStatusEntity.maxHp * 0.5 ? 'bg-yellow-500' : 
-                  'bg-gradient-to-r from-cyan-500 to-blue-600'
-                }`} 
-                style={{ width: `${Math.max(0, Math.min(100, (selectedStatusEntity.hp / selectedStatusEntity.maxHp) * 100))}%` }}
-              >
+              <div className={`h-full transition-all duration-300 relative ${selectedStatusEntity.hp <= selectedStatusEntity.maxHp * 0.25 ? 'bg-red-600' : selectedStatusEntity.hp <= selectedStatusEntity.maxHp * 0.5 ? 'bg-yellow-500' : 'bg-gradient-to-r from-cyan-500 to-blue-600'}`} style={{ width: `${Math.max(0, Math.min(100, (selectedStatusEntity.hp / selectedStatusEntity.maxHp) * 100))}%` }}>
                   <div className="absolute right-0 top-0 h-full w-px bg-white/50 shadow-[0_0_5px_white]"></div>
               </div>
             </div>
           </div>
-          
-          {/* Grid de Atributos */}
           {selectedStatusEntity.stats && (
             <div className="grid grid-cols-2 gap-2 text-xs bg-black/40 p-2 rounded-lg border border-cyan-500/20">
               {Object.entries(selectedStatusEntity.stats).map(([stat, value]) => {
@@ -611,9 +630,25 @@ function App() {
       )}
 
       {showEnemyCreator && (
-          <MonsterCreatorModal onSave={handleSaveNewEnemy} onClose={() => setShowEnemyCreator(false)} />
+          <MonsterCreatorModal 
+            onSave={handleSaveNewEnemy} 
+            onSavePreset={handleSaveMonsterPreset} 
+            onClose={() => setShowEnemyCreator(false)} 
+          />
       )}
 
+      <BaldursDiceRoller 
+    isOpen={showBgDice}
+    onClose={() => setShowBgDice(false)}
+    title={diceContext.title}       // <--- MUDE DE skillName PARA title
+    subtitle={diceContext.subtitle} // <--- MUDE DE statName PARA subtitle
+    difficultyClass={diceContext.dc}
+    baseModifier={diceContext.mod || 0} 
+    proficiency={diceContext.prof || 0}
+    rollType={diceContext.rollType || 'normal'}
+    extraBonuses={diceContext.bonuses} 
+    onComplete={handleDiceComplete}
+      />
       <main className="relative flex-grow h-full overflow-hidden bg-black text-white">
         <div className="absolute top-4 left-4 z-[150] pointer-events-none opacity-50">
            <span className={`text-[10px] font-bold px-2 py-1 rounded border ${role === 'DM' ? 'bg-red-900 border-red-500' : 'bg-blue-900 border-blue-500'}`}>
@@ -631,16 +666,23 @@ function App() {
           externalOffset={mapOffset} 
           externalScale={mapScale} 
           onMapChange={handleMapSync}
+          focusEntity={focusEntity} 
+          globalBrightness={globalBrightness}
         />
         
-        <div className="fixed bottom-4 right-[340px] z-[130] pointer-events-none">
-          <div className="pointer-events-auto">
-            <DiceRoller playDiceSound={() => playSound('dado')} addLog={addLog} />
-          </div>
+        <div className="fixed bottom-6 right-[450px] z-[130] pointer-events-auto animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <button 
+                onClick={openDiceRoller}
+                className="group relative flex items-center justify-center w-16 h-16 bg-gradient-to-br from-indigo-900 to-purple-900 rounded-full border-2 border-yellow-500 shadow-[0_0_20px_rgba(168,85,247,0.6)] hover:scale-110 transition-all duration-300"
+                title="Rolar Dado (Estilo BG3)"
+            >
+                <span className="text-3xl filter drop-shadow-md group-hover:rotate-12 transition-transform">🎲</span>
+                <div className="absolute -top-1 -right-1 w-5 h-5 bg-red-600 rounded-full text-[10px] flex items-center justify-center border border-white font-bold animate-pulse">!</div>
+            </button>
         </div>
       </main>
 
-      <aside className="w-80 flex-shrink-0 border-l border-rpgAccent/20 bg-rpgPanel shadow-2xl z-[140]">
+      <aside className="w-auto flex-shrink-0 border-l border-rpgAccent/20 bg-rpgPanel shadow-2xl z-[140]">
         {role === 'DM' 
           ? <SidebarDM 
               entities={entities} onUpdateHP={handleUpdateHP} onAddEntity={handleAddEntity} onDeleteEntity={handleDeleteEntity}
@@ -654,17 +696,24 @@ function App() {
               activeAoE={activeAoE} onSetAoE={setActiveAoE} chatMessages={chatMessages} onSendMessage={handleSendMessage}
               aoeColor={aoeColor} onSetAoEColor={setAoEColor}
               onOpenCreator={(type) => { if (type === 'player') setShowAllyCreator(true); if (type === 'enemy') setShowEnemyCreator(true); }}
-              onAddXP={handleAddXP} 
+              onAddXP={handleAddXP}
+              customMonsters={customMonsters} 
+              globalBrightness={globalBrightness}
+              onSetGlobalBrightness={handleUpdateGlobalBrightness}
             /> 
           : <SidebarPlayer 
               entities={entities} 
-              myCharacterName={playerName} // PASSA O NOME DO LOGIN AQUI
+              myCharacterName={playerName}
               initiativeList={initiativeList} 
               activeTurnId={activeTurnId} 
               chatMessages={chatMessages} 
               onSendMessage={handleSendMessage} 
               onRollAttribute={handleAttributeRoll}
               onUpdateCharacter={handleEditEntity} 
+              onSelectEntity={(entity) => {
+                  setFocusEntity(entity);
+                  setTimeout(() => setFocusEntity(null), 100);
+              }}
             />
         }
       </aside>

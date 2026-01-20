@@ -6,7 +6,9 @@ import path from 'path';
 const fastify = Fastify();
 
 const io = new Server(fastify.server, {
-  cors: { origin: "*" }
+  cors: { origin: "*" },
+  // AUMENTADO PARA 50MB PARA EVITAR QUE MAPAS GRANDES TRAVEM
+  maxHttpBufferSize: 50 * 1024 * 1024 
 });
 
 // --- 1. CONFIGURAÇÃO DO MAPA ---
@@ -17,8 +19,7 @@ const ROWS = Math.ceil(MAP_LIMIT / GRID_SIZE);
 
 const createInitialFog = () => Array(ROWS).fill(null).map(() => Array(COLS).fill(false));
 
-// --- 2. ESTADO INICIAL COM TIPAGEM (CORREÇÃO DO ERRO 'NEVER') ---
-// Definimos uma interface para explicar ao TypeScript o que esperar
+// --- 2. ESTADO INICIAL ATUALIZADO ---
 interface GameState {
   entities: any[];
   fogGrid: boolean[][];
@@ -26,18 +27,21 @@ interface GameState {
   initiativeList: any[];
   activeTurnId: number | null;
   chatHistory: any[];
+  customMonsters: any[];    
+  globalBrightness: number; 
 }
 
-// CORREÇÃO DO CAMINHO: Usamos process.cwd() que é mais seguro e evita erro de 'import.meta'
 const DATA_FILE = path.join(process.cwd(), 'savegame_v2.json');
 
 let currentGameState: GameState = {
-  entities: [], // Agora ele sabe que isso é uma lista de 'any', não 'never'
+  entities: [], 
   fogGrid: createInitialFog(), 
   currentMap: '/maps/floresta.jpg',
   initiativeList: [],
   activeTurnId: null,
-  chatHistory: [] 
+  chatHistory: [],
+  customMonsters: [], 
+  globalBrightness: 1 
 };
 
 // --- 3. CARREGAR SAVE (Se existir) ---
@@ -46,10 +50,13 @@ if (fs.existsSync(DATA_FILE)) {
     const rawData = fs.readFileSync(DATA_FILE, 'utf-8');
     const loadedData = JSON.parse(rawData);
     
-    // Mescla os dados com cuidado
-    currentGameState = { ...currentGameState, ...loadedData };
+    currentGameState = { 
+        ...currentGameState, 
+        ...loadedData,
+        customMonsters: loadedData.customMonsters || [],
+        globalBrightness: loadedData.globalBrightness !== undefined ? loadedData.globalBrightness : 1
+    };
 
-    // SEGURANÇA: Corrige grade se o tamanho estiver errado
     if (!currentGameState.fogGrid || currentGameState.fogGrid.length < ROWS) {
         console.log("⚠️ Grade inválida detectada! Recriando neblina...");
         currentGameState.fogGrid = createInitialFog();
@@ -71,24 +78,18 @@ io.on('connection', (socket) => {
     console.log(`👤 Usuário entrou na sala: ${roomId}`);
   });
 
-  // --- PERSISTÊNCIA: O EVENTO QUE ESTAVA FALTANDO ---
   socket.on('checkExistingCharacter', (data) => {
     console.log(`🔎 Verificando existência de: ${data.name}`);
-    
     const existingChar = currentGameState.entities.find(
       (e: any) => e.type === 'player' && e.name.toLowerCase() === data.name.toLowerCase()
     );
-
     if (existingChar) {
-      console.log(`✅ Personagem encontrado! Enviando dados de ${data.name}.`);
       socket.emit('characterFound', existingChar);
     } else {
-      console.log(`🆕 Personagem ${data.name} não encontrado. Liberando criação.`);
       socket.emit('characterNotFound');
     }
   });
 
-  // Trocando o mapa
   socket.on('changeMap', (data) => {
     const newFog = createInitialFog();
     currentGameState.currentMap = data.mapUrl;
@@ -100,7 +101,7 @@ io.on('connection', (socket) => {
     });
   });
 
-  // Salvar Jogo
+  // Salvar Jogo ATUALIZADO
   socket.on('saveGame', (data) => {
     console.log(`📥 PERSISTINDO DADOS NO DISCO...`);
     currentGameState = {
@@ -110,7 +111,9 @@ io.on('connection', (socket) => {
         currentMap: data.currentMap,
         initiativeList: data.initiativeList,
         activeTurnId: data.activeTurnId,
-        chatHistory: data.chatMessages || []
+        chatHistory: data.chatMessages || [],
+        customMonsters: data.customMonsters || [],
+        globalBrightness: data.globalBrightness 
     };
 
     try {
@@ -119,6 +122,14 @@ io.on('connection', (socket) => {
     } catch (err) {
       console.error("❌ ERRO AO GRAVAR ARQUIVO:", err);
     }
+  });
+
+  // --- SINCRONIZAR BRILHO (DIA/NOITE) ---
+  socket.on('updateGlobalBrightness', (data) => {
+      currentGameState.globalBrightness = data.brightness;
+      io.in(data.roomId).emit('globalBrightnessUpdated', { 
+          brightness: data.brightness 
+      });
   });
 
   // --- ATUALIZAÇÕES EM TEMPO REAL ---
@@ -141,7 +152,6 @@ io.on('connection', (socket) => {
   });
 
   socket.on('createEntity', (data) => {
-    // EVITA DUPLICATAS
     const exists = currentGameState.entities.find((e: any) => e.id === data.entity.id);
     if (!exists) {
         currentGameState.entities.push(data.entity);
@@ -154,7 +164,6 @@ io.on('connection', (socket) => {
     socket.to(data.roomId).emit('entityDeleted', data);
   });
 
-  // Neblina
   socket.on('updateFog', (data) => {
     if (currentGameState.fogGrid[data.y]) {
       currentGameState.fogGrid[data.y][data.x] = data.shouldReveal;
@@ -197,5 +206,5 @@ io.on('connection', (socket) => {
 
 fastify.listen({ port: 4000, host: '0.0.0.0' }, (err) => {
   if (err) { console.error(err); process.exit(1); }
-  console.log('⚔️  VTT BACKEND ONLINE - PORTA 4000');
+  console.log('⚔️  NEXUS BACKEND ONLINE - PORTA 4000');
 });

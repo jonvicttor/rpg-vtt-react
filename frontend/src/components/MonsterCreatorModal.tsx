@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
-import { Entity } from '../App';
+import { Entity, MonsterPreset } from '../App';
 
 interface MonsterCreatorModalProps {
   onSave: (data: Partial<Entity>) => void;
+  // ADICIONEI ESTA LINHA:
+  onSavePreset: (preset: MonsterPreset) => void;
   onClose: () => void;
 }
 
-const MonsterCreatorModal: React.FC<MonsterCreatorModalProps> = ({ onSave, onClose }) => {
+const MonsterCreatorModal: React.FC<MonsterCreatorModalProps> = ({ onSave, onSavePreset, onClose }) => {
   const [targetLevel, setTargetLevel] = useState(1);
   const [data, setData] = useState({
     name: '',
@@ -106,6 +108,20 @@ const MonsterCreatorModal: React.FC<MonsterCreatorModalProps> = ({ onSave, onClo
     });
   };
 
+  // NOVA FUNÇÃO PARA SALVAR O PRESET
+  const handleSavePresetClick = () => {
+      if (!data.name) return alert("Dê um nome ao monstro para salvar.");
+      const newPreset: MonsterPreset = {
+          name: data.name,
+          hp: Number(data.hp),
+          ac: Number(data.ac),
+          image: data.image || '/tokens/lobo.png',
+          size: data.size
+      };
+      onSavePreset(newPreset);
+      alert(`Preset "${data.name}" salvo com sucesso!`);
+  };
+
   return (
     <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={onClose}>
       <div className="bg-[#1a1a1a] border-2 border-red-900 w-full max-w-lg rounded-lg shadow-2xl flex flex-col animate-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
@@ -196,6 +212,17 @@ const MonsterCreatorModal: React.FC<MonsterCreatorModalProps> = ({ onSave, onClo
 
         <div className="p-4 bg-black/40 border-t border-white/10 flex justify-end gap-2">
             <button onClick={onClose} className="px-4 py-2 text-xs uppercase font-bold text-gray-500 hover:text-white transition-colors">Cancelar</button>
+            
+            {/* BOTÃO SALVAR PRESET */}
+            <button 
+                type="button" 
+                onClick={handleSavePresetClick} 
+                className="w-12 bg-gray-800 hover:bg-blue-600 border border-white/10 rounded flex items-center justify-center text-xl transition-colors" 
+                title="Salvar Preset"
+            >
+                💾
+            </button>
+
             <button onClick={handleSave} className="px-6 py-2 bg-red-900 hover:bg-red-700 text-white text-xs uppercase font-bold rounded shadow-lg border border-red-500/30">CRIAR</button>
         </div>
       </div>
