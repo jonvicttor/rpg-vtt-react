@@ -3,10 +3,14 @@ import React from 'react';
 import { useGLTF } from '@react-three/drei';
 
 export function DiceModel(props: any) {
-  const gltf = useGLTF('/dado.glb');
+  const { scene } = useGLTF('/dado.glb');
 
-  // Retorna diretamente o primitive sem wrapper Group
-  return <primitive object={gltf.scene} scale={20} {...props} />;
+  return (
+    <group {...props} dispose={null}>
+      {/* Mudei de 20 para 5 para ele não "explodir" na tela */}
+      <primitive object={scene} scale={0.004} /> 
+    </group>
+  );
 }
 
 useGLTF.preload('/dado.glb');
