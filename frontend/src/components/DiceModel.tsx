@@ -8,7 +8,7 @@ export function DiceModel(props: any) {
   return (
     <group {...props} dispose={null}>
       {/* Mudei de 20 para 5 para ele não "explodir" na tela */}
-      <primitive object={scene} scale={0.004} /> 
+      <primitive object={scene} scale={0.003} /> 
     </group>
   );
 }

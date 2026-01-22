@@ -125,7 +125,7 @@ function App() {
 
   const [customMonsters, setCustomMonsters] = useState<MonsterPreset[]>([]); 
   const [focusEntity, setFocusEntity] = useState<Entity | null>(null);       
-  const [globalBrightness, setGlobalBrightness] = useState(1);               
+  const [globalBrightness, setGlobalBrightness] = useState(1);              
 
   const [mapOffset, setMapOffset] = useState({ x: 0, y: 0 });
   const [mapScale, setMapScale] = useState(1);
@@ -137,11 +137,11 @@ function App() {
   // --- ESTADOS DO NOVO DADO BG3 ---
   const [showBgDice, setShowBgDice] = useState(false);
   
-  // CORREÇÃO: Usando RollBonus[] na tipagem do estado
+  // CONTEXTO DO DADO: Guarda o que está sendo rolado agora
   const [diceContext, setDiceContext] = useState({
       title: 'Teste Geral',
       subtitle: 'Sorte',
-      dc: 10,
+      dc: 15,
       mod: 0,   
       prof: 0,  
       bonuses: [] as RollBonus[], 
@@ -231,10 +231,40 @@ function App() {
         setGlobalBrightness(data.brightness);
     });
 
+    // --- NOVO LISTENER: O JOGADOR ESCUTA O COMANDO DO MESTRE ---
+    socket.on('dmRequestRoll', (data) => {
+        // data = { targetId, skillName, mod, dc }
+        
+        // Se eu sou um JOGADOR
+        if (role === 'PLAYER') {
+            // Verifica se o personagem alvo é meu (pelo nome, ou ID se você tiver sistema de Login robusto)
+            const myChar = entities.find(e => e.name === playerName && e.id === data.targetId);
+            
+            // Se o ID bater com um personagem do tipo PLAYER na mesa (simplificação)
+            if (myChar || entities.some(e => e.id === data.targetId && e.type === 'player')) {
+                 setDiceContext({
+                    title: data.skillName,
+                    subtitle: `Exigido pelo Mestre (CD ${data.dc})`,
+                    dc: data.dc,
+                    mod: data.mod,
+                    prof: 0, 
+                    bonuses: [], 
+                    rollType: 'normal'
+                });
+                setShowBgDice(true);
+                playSound('atmosfera'); // Som de atenção
+                addLog(`⚠️ O Mestre exigiu um teste de **${data.skillName}** (CD ${data.dc})!`, 'info');
+            }
+        }
+    });
+
     return () => {
       socket.off('connect', joinRoom); socket.off('gameStateSync'); socket.off('notification'); socket.off('newDiceResult'); socket.off('chatMessage'); socket.off('entityPositionUpdated'); socket.off('entityStatusUpdated'); socket.off('entityCreated'); socket.off('entityDeleted'); socket.off('mapChanged'); socket.off('fogUpdated'); socket.off('fogGridSynced'); socket.off('initiativeUpdated'); socket.off('triggerAudio'); socket.off('mapStateUpdated'); socket.off('globalBrightnessUpdated');
+      
+      // Cleanup do novo listener
+      socket.off('dmRequestRoll');
     };
-  }, [playSound, isLoggedIn, addLog, role, statusSelectionId]); 
+  }, [playSound, isLoggedIn, addLog, role, statusSelectionId, entities, playerName]); // Adicionei dependências
 
   const handleMapSync = (offset: {x: number, y: number}, scale: number) => {
     setMapOffset(offset);
@@ -245,17 +275,34 @@ function App() {
     }
   };
 
+  // --- NOVA FUNÇÃO: O Mestre chama isso (via SidebarDM) ---
+  const handleDmRequestRoll = (targetId: number, skillName: string, mod: number, dc: number) => {
+      // 1. Acha o nome do alvo para logar
+      const target = entities.find(e => e.id === targetId);
+      const targetName = target ? target.name : 'Alvo';
+
+      // 2. Log para o Mestre saber que foi enviado
+      addLog(`Mestre solicitou teste de **${skillName}** para **${targetName}** (CD ${dc}).`, 'info');
+
+      // 3. Envia sinal via Socket
+      socket.emit('dmRequestRoll', {
+          roomId: ROOM_ID,
+          targetId: targetId,
+          skillName: skillName,
+          mod: mod,
+          dc: dc
+      });
+  };
+
+  // Funções de rolagem local (Player clicando na própria ficha)
   const handleAttributeRoll = (charName: string, attrName: string, mod: number) => {
       setDiceContext({
-          title: attrName.toUpperCase(),
-          subtitle: `Teste de Habilidade (${charName})`,
-          dc: 10, 
-          mod: mod,
+          title: attrName, 
+          subtitle: `Teste de Perícia (${charName})`,
+          dc: 15, 
+          mod: mod, 
           prof: 0, 
-          bonuses: [
-              { id: 'guidance', name: 'Guidance', value: '1d4', type: 'dice', active: false, icon: '✨' },
-              { id: 'bardic', name: 'Insp. Bardo', value: '1d6', type: 'dice', active: false, icon: '🎵' }
-          ],
+          bonuses: [],
           rollType: 'normal'
       });
       setShowBgDice(true);
@@ -603,11 +650,11 @@ function App() {
           {selectedStatusEntity.stats && (
             <div className="grid grid-cols-2 gap-2 text-xs bg-black/40 p-2 rounded-lg border border-cyan-500/20">
               {Object.entries(selectedStatusEntity.stats).map(([stat, value]) => {
-                 const mod = Math.floor((value - 10) / 2);
-                 const modStr = mod >= 0 ? `+${mod}` : `${mod}`;
-                 const labels: Record<string, string> = { str: 'FOR', dex: 'DES', con: 'CON', int: 'INT', wis: 'SAB', cha: 'CAR' };
-                 const icons: Record<string, string> = { str: '💪', dex: '🏃', con: '❤️', int: '🧠', wis: '🦉', cha: '🎭' };
-                 return (
+                  const mod = Math.floor((value - 10) / 2);
+                  const modStr = mod >= 0 ? `+${mod}` : `${mod}`;
+                  const labels: Record<string, string> = { str: 'FOR', dex: 'DES', con: 'CON', int: 'INT', wis: 'SAB', cha: 'CAR' };
+                  const icons: Record<string, string> = { str: '💪', dex: '🏃', con: '❤️', int: '🧠', wis: '🦉', cha: '🎭' };
+                  return (
                   <div key={stat} className="flex justify-between items-center px-2 py-1.5 bg-cyan-900/20 rounded border border-white/5 hover:border-cyan-500/30 transition-colors">
                     <div className="flex items-center gap-1.5">
                         <span className="opacity-80 text-[10px]">{icons[stat]}</span>
@@ -638,17 +685,18 @@ function App() {
       )}
 
       <BaldursDiceRoller 
-    isOpen={showBgDice}
-    onClose={() => setShowBgDice(false)}
-    title={diceContext.title}       // <--- MUDE DE skillName PARA title
-    subtitle={diceContext.subtitle} // <--- MUDE DE statName PARA subtitle
-    difficultyClass={diceContext.dc}
-    baseModifier={diceContext.mod || 0} 
-    proficiency={diceContext.prof || 0}
-    rollType={diceContext.rollType || 'normal'}
-    extraBonuses={diceContext.bonuses} 
-    onComplete={handleDiceComplete}
+        isOpen={showBgDice}
+        onClose={() => setShowBgDice(false)}
+        title={diceContext.title} 
+        subtitle={diceContext.subtitle} 
+        difficultyClass={diceContext.dc}
+        baseModifier={diceContext.mod || 0} 
+        proficiency={diceContext.prof || 0}
+        rollType={diceContext.rollType || 'normal'}
+        extraBonuses={diceContext.bonuses} 
+        onComplete={handleDiceComplete}
       />
+      
       <main className="relative flex-grow h-full overflow-hidden bg-black text-white">
         <div className="absolute top-4 left-4 z-[150] pointer-events-none opacity-50">
            <span className={`text-[10px] font-bold px-2 py-1 rounded border ${role === 'DM' ? 'bg-red-900 border-red-500' : 'bg-blue-900 border-blue-500'}`}>
@@ -700,6 +748,9 @@ function App() {
               customMonsters={customMonsters} 
               globalBrightness={globalBrightness}
               onSetGlobalBrightness={handleUpdateGlobalBrightness}
+              
+              // --- AQUI ESTÁ A LIGAÇÃO FINAL ---
+              onRequestRoll={handleDmRequestRoll} 
             /> 
           : <SidebarPlayer 
               entities={entities} 

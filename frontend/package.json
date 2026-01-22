@@ -1,7 +1,11 @@
 {
-  "name": "frontend",
+  "name": "nexus-rpg-client",
   "version": "0.1.0",
   "private": true,
+  "main": "public/electron.js",
+  "homepage": "./",
+  "description": "VTT Nexus RPG",
+  "author": "Victor",
   "dependencies": {
     "@react-three/drei": "^9.122.0",
     "@react-three/fiber": "^8.18.0",
@@ -28,7 +32,9 @@
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "eject": "react-scripts eject",
+    "electron-dev": "concurrently \"BROWSER=none npm start\" \"wait-on http://localhost:3000 && electron .\"",
+    "dist": "npm run build && electron-builder"
   },
   "eslintConfig": {
     "extends": [
@@ -54,7 +60,27 @@
     "@types/react-dom": "^18.3.0",
     "@types/three": "^0.164.0",
     "autoprefixer": "^10.4.19",
+    "concurrently": "^8.2.2",
+    "electron": "^30.0.6",
+    "electron-builder": "^24.13.3",
+    "electron-is-dev": "^3.0.1",
     "postcss": "^8.4.38",
-    "tailwindcss": "^3.4.3"
+    "tailwindcss": "^3.4.3",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.nexus.rpg",
+    "productName": "Nexus RPG",
+    "files": [
+      "build/**/*",
+      "public/electron.js"
+    ],
+    "directories": {
+      "buildResources": "assets"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "public/favicon.ico"
+    }
   }
 }

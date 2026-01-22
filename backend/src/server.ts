@@ -192,6 +192,14 @@ io.on('connection', (socket) => {
     io.in(data.roomId).emit('newDiceResult', data); 
   });
 
+  // --- NOVA FUNCIONALIDADE: ROLAGEM PEDIDA PELO MESTRE ---
+  socket.on('dmRequestRoll', (data) => {
+    console.log(`🎲 Mestre pediu rolagem de ${data.skillName} (CD ${data.dc}) para ID ${data.targetId}`);
+    // Envia para todos na sala (o App.tsx do jogador vai filtrar se é pra ele)
+    io.in(data.roomId).emit('dmRequestRoll', data);
+  });
+  // --------------------------------------------------------
+
   socket.on('triggerAudio', (data) => { 
     io.to(data.roomId).emit('triggerAudio', data); 
   });

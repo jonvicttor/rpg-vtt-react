@@ -129,7 +129,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
       <button onClick={toggleMute} className="absolute top-6 right-6 z-50 text-amber-400 hover:text-white transition-colors bg-black/40 p-3 rounded-full border border-amber-500/30 backdrop-blur-md hover:scale-110 active:scale-95 duration-200 group">
         {isMuted ? <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line></svg> : <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>}
       </button>
-      <div className="relative z-10">{children}</div>
+      <div className="relative z-10 flex items-center justify-center w-full h-full p-4">{children}</div>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&display=swap');
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
@@ -177,11 +177,11 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
         </div>
       )}
 
-      {/* CONTAINER PRINCIPAL REDUZIDO PARA w-[800px] h-[550px] */}
+      {/* CONTAINER PRINCIPAL REDUZIDO */}
       <div className="bg-black/70 backdrop-blur-2xl w-[800px] h-[550px] rounded-2xl border border-purple-500/20 shadow-[0_0_50px_rgba(0,0,0,0.5)] flex flex-col relative overflow-hidden group">
         <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-purple-500 to-transparent opacity-50"></div>
         
-        {/* Cabeçalho Compacto */}
+        {/* Cabeçalho */}
         <div className="p-5 border-b border-white/5 flex justify-between items-center bg-white/5 flex-shrink-0">
           <h2 className="text-xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-200 to-amber-500 tracking-widest" style={{ fontFamily: 'Cinzel' }}>FORJAR HERÓI</h2>
           <div className="flex gap-3">
@@ -239,46 +239,46 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
           </div>
         )}
 
-        {/* --- PASSO 3: LAYOUT COMPACTO E HARMÔNICO --- */}
+        {/* --- PASSO 3: COMPACTADO PARA CABER SEM SCROLL --- */}
         {step === 3 && (
-          <div className="p-6 flex flex-col h-full items-center">
-            <div className="text-center mb-6 flex-shrink-0">
-              <span className="text-[9px] text-amber-500/60 uppercase font-bold tracking-[0.3em]">Pontos de Destino</span>
-              {/* Tamanho da fonte reduzido para text-5xl */}
-              <div className={`text-5xl font-black mt-2 transition-colors ${pointsLeft < 0 ? 'text-red-500' : 'text-amber-400'}`} style={{ fontFamily: 'Cinzel' }}>{pointsLeft}</div>
+          <div className="p-6 flex flex-col h-full items-center justify-center">
+            
+            {/* Título e Pontos - Compactados */}
+            <div className="text-center mb-4 flex-shrink-0">
+              <span className="text-[10px] text-amber-500/60 uppercase font-bold tracking-[0.3em]">Pontos de Destino</span>
+              <div className={`text-6xl font-black mt-1 transition-colors ${pointsLeft < 0 ? 'text-red-500' : 'text-amber-400'}`} style={{ fontFamily: 'Cinzel' }}>{pointsLeft}</div>
             </div>
 
-            {/* Grid mais compacta (gap-4) e sem scroll */}
-            <div className="grid grid-cols-3 gap-4 w-full mb-6 flex-grow">
+            {/* Grid de Atributos - Reduzida e centralizada */}
+            <div className="grid grid-cols-3 gap-3 w-full max-w-2xl mb-4 flex-grow content-center">
               {Object.keys(stats).map((key) => {
                 const attr = key as keyof typeof stats;
                 const racial = (RACES as any)[selectedRace].bonus[attr];
                 const total = stats[attr] + racial;
                 const mod = Math.floor((total - 10) / 2);
                 return (
-                  <div key={attr} className="bg-white/5 p-3 rounded-2xl border border-white/10 flex flex-col items-center relative hover:bg-white/10 transition-all border-b-2 border-b-amber-500/20">
-                    <span className="text-[9px] text-amber-500/80 font-black uppercase tracking-widest mb-2">{attr}</span>
-                    <div className="flex items-center gap-3 bg-black/40 p-2 rounded-xl border border-white/5">
-                      {/* Botões e texto menores */}
-                      <button onClick={() => handleStatChange(attr, false)} className="w-8 h-8 flex items-center justify-center bg-white/5 hover:bg-red-500/40 rounded-lg text-lg text-white transition-all disabled:opacity-10" disabled={stats[attr] <= 8}>-</button>
-                      <span className="text-2xl font-black font-serif w-8 text-center text-white">{stats[attr]}</span>
-                      <button onClick={() => handleStatChange(attr, true)} className="w-8 h-8 flex items-center justify-center bg-white/5 hover:bg-green-500/40 rounded-lg text-lg text-white transition-all disabled:opacity-10" disabled={stats[attr] >= 15 || pointsLeft <= 0}>+</button>
+                  <div key={attr} className="bg-white/5 p-2 rounded-xl border border-white/10 flex flex-col items-center relative hover:bg-white/10 transition-all border-b-2 border-b-amber-500/20">
+                    <span className="text-[9px] text-amber-500/80 font-black uppercase tracking-widest mb-1">{attr}</span>
+                    <div className="flex items-center gap-2 bg-black/40 p-1.5 rounded-lg border border-white/5">
+                      <button onClick={() => handleStatChange(attr, false)} className="w-6 h-6 flex items-center justify-center bg-white/5 hover:bg-red-500/40 rounded text-sm text-white transition-all disabled:opacity-10" disabled={stats[attr] <= 8}>-</button>
+                      <span className="text-xl font-black font-serif w-6 text-center text-white">{stats[attr]}</span>
+                      <button onClick={() => handleStatChange(attr, true)} className="w-6 h-6 flex items-center justify-center bg-white/5 hover:bg-green-500/40 rounded text-sm text-white transition-all disabled:opacity-10" disabled={stats[attr] >= 15 || pointsLeft <= 0}>+</button>
                     </div>
-                    {/* Caixa de modificador menor */}
-                    <div className="absolute -top-2 -right-2 w-10 h-10 bg-gradient-to-br from-amber-400 to-amber-700 rounded-xl flex flex-col items-center justify-center text-black font-black shadow-lg">
-                      <span className="text-[7px] uppercase leading-none mb-0.5">Mod</span>
-                      <span className="text-base leading-none">{mod >= 0 ? `+${mod}` : mod}</span>
+                    {/* Modificador Flutuante */}
+                    <div className="absolute -top-2 -right-2 w-8 h-8 bg-gradient-to-br from-amber-400 to-amber-700 rounded-lg flex flex-col items-center justify-center text-black font-black shadow-lg border border-amber-300">
+                      <span className="text-[6px] uppercase leading-none mb-0.5 opacity-80">Mod</span>
+                      <span className="text-sm leading-none">{mod >= 0 ? `+${mod}` : mod}</span>
                     </div>
-                    <div className="mt-2 text-[8px] text-amber-100/40 font-bold uppercase">Total: <span className="text-amber-400">{total}</span></div>
+                    <div className="mt-1 text-[8px] text-amber-100/40 font-bold uppercase">Total: <span className="text-amber-400">{total}</span></div>
                   </div>
                 );
               })}
             </div>
 
-            <div className="mt-auto w-full flex justify-between items-center border-t border-white/5 pt-6 flex-shrink-0">
+            {/* Rodapé - Fixo no final */}
+            <div className="mt-auto w-full flex justify-between items-center border-t border-white/5 pt-4 flex-shrink-0">
               <button onClick={() => setStep(2)} className="text-purple-300/50 hover:text-purple-300 font-bold uppercase tracking-widest text-xs transition-colors">❮ Voltar</button>
-              {/* Botão final menor */}
-              <button onClick={handleFinalSubmit} className="px-10 py-3 bg-gradient-to-r from-amber-500 via-amber-600 to-amber-800 text-white font-black rounded-xl shadow-[0_0_20px_rgba(245,158,11,0.3)] hover:shadow-[0_0_30px_rgba(245,158,11,0.5)] hover:scale-105 active:scale-95 transition-all tracking-[0.2em] uppercase text-xs border border-amber-400/40">Entrar no Mundo</button>
+              <button onClick={handleFinalSubmit} className="px-8 py-3 bg-gradient-to-r from-amber-500 via-amber-600 to-amber-800 text-white font-black rounded-xl shadow-[0_0_20px_rgba(245,158,11,0.3)] hover:shadow-[0_0_30px_rgba(245,158,11,0.5)] hover:scale-105 active:scale-95 transition-all tracking-[0.2em] uppercase text-xs border border-amber-400/40">Entrar no Mundo</button>
             </div>
           </div>
         )}

@@ -5,6 +5,11 @@ import { Entity, MonsterPreset } from '../App';
 import EditEntityModal from './EditEntityModal';
 import { getLevelFromXP, getNextLevelXP } from '../utils/gameRules';
 
+// Importações das Ferramentas
+import SkillList from './SkillList';
+import ItemCreator from './ItemCreator';
+import { mapEntityStatsToAttributes } from '../utils/attributeMapping';
+
 export interface InitiativeItem {
   id: number;
   name: string;
@@ -58,6 +63,9 @@ interface SidebarDMProps {
   customMonsters?: MonsterPreset[]; 
   globalBrightness?: number;
   onSetGlobalBrightness?: (val: number) => void;
+  
+  // A FUNÇÃO MÁGICA QUE O APP VAI PROCESSAR
+  onRequestRoll: (targetId: number, skillName: string, mod: number, dc: number) => void;
 }
 
 const AoEColorPicker = ({ selected, onSelect }: { selected: string, onSelect: (c: string) => void }) => {
@@ -262,7 +270,7 @@ const CombatVsPanel = ({ attacker, targets, onUpdateHP, onSendMessage }: { attac
 
 const AVAILABLE_MAPS = [{ name: 'Floresta', url: '/maps/floresta.jpg' }, { name: 'Caverna', url: '/maps/caverna.jpg' }, { name: 'Taverna', url: '/maps/taverna.jpg' }, { name: 'Masmorra', url: '/maps/masmorra.jpg' }];
 
-type SidebarTab = 'combat' | 'map' | 'create' | 'audio';
+type SidebarTab = 'combat' | 'map' | 'create' | 'audio' | 'tools'; 
 type MainTab = 'tools' | 'chat';
 
 const SidebarDM: React.FC<SidebarDMProps> = ({ 
@@ -276,7 +284,8 @@ const SidebarDM: React.FC<SidebarDMProps> = ({
   onAddXP,
   customMonsters,
   globalBrightness = 1,
-  onSetGlobalBrightness
+  onSetGlobalBrightness,
+  onRequestRoll // RECEBENDO A FUNÇÃO
 }) => {
   const [editingEntity, setEditingEntity] = useState<Entity | null>(null);
   const [activeTab, setActiveTab] = useState<SidebarTab>('combat');
@@ -285,8 +294,24 @@ const SidebarDM: React.FC<SidebarDMProps> = ({
   const [customMapUrl, setCustomMapUrl] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // COMBINA A LISTA PADRÃO COM OS MONSTROS CUSTOMIZADOS
+  // --- NOVO ESTADO: CONTROLE DO POP-UP DE CD ---
+  const [pendingSkillRequest, setPendingSkillRequest] = useState<{ skillName: string, mod: number } | null>(null);
+  const [dcInput, setDcInput] = useState<number>(10); // CD Padrão
+
   const FULL_MONSTER_LIST = [...MONSTER_LIST, ...(customMonsters || [])];
+
+  const targetId = targetEntityIds[0];
+  const targetEntity = entities.find(e => e.id === targetId);
+
+  // --- FUNÇÃO DE CONFIRMAÇÃO DO MESTRE ---
+  const handleConfirmRequest = () => {
+      if (pendingSkillRequest && targetEntity) {
+          // Chama a função passada pelo App.tsx
+          onRequestRoll(targetEntity.id, pendingSkillRequest.skillName, pendingSkillRequest.mod, dcInput);
+          setPendingSkillRequest(null);
+          setDcInput(10);
+      }
+  };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -318,17 +343,16 @@ const SidebarDM: React.FC<SidebarDMProps> = ({
       targetsToRoll.forEach(ent => { if (!initiativeList.find(i => i.id === ent.id)) onAddToInitiative(ent); });
   };
 
-  // --- 1. ESTILO DE COURO E TAMANHO TRAVADO (IGUAL SIDEBAR PLAYER) ---
   const sidebarStyle = {
     backgroundColor: '#1a1510', 
     backgroundImage: `url('/assets/bg-couro-sidebar.png')`, 
     backgroundSize: 'cover', 
     backgroundRepeat: 'no-repeat',
     boxShadow: 'inset 0 0 60px rgba(0,0,0,0.9)', 
-    width: '420px',      // LARGURA FIXA
-    minWidth: '420px',   // NÃO ENCOLHE
-    maxWidth: '420px',   // NÃO ESTICA
-    flex: '0 0 420px',   // TRAVA FLEX
+    width: '420px',      
+    minWidth: '420px',   
+    maxWidth: '420px',   
+    flex: '0 0 420px',   
   };
 
   return (
@@ -339,7 +363,6 @@ const SidebarDM: React.FC<SidebarDMProps> = ({
         <div className="fixed inset-0 z-[350] flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={() => setShowMonsterSelector(false)}>
           <div className="bg-gray-900 border border-red-900/50 p-6 rounded-lg shadow-2xl w-[450px] max-h-[80vh] overflow-y-auto custom-scrollbar" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-red-500 font-bold uppercase tracking-widest mb-4 text-center border-b border-white/10 pb-2">Invocar Inimigo</h3>
-            
             <div className="grid grid-cols-2 gap-3 mb-6">
               {FULL_MONSTER_LIST.map((monster, idx) => (
                 <button key={`${monster.name}-${idx}`} onClick={() => handleSelectPreset(monster)} className="flex flex-col items-center bg-black/40 hover:bg-red-900/20 border border-white/10 hover:border-red-500/50 p-3 rounded transition-all group">
@@ -351,22 +374,51 @@ const SidebarDM: React.FC<SidebarDMProps> = ({
                 </button>
               ))}
             </div>
-
             <button onClick={() => { setShowMonsterSelector(false); onOpenCreator('enemy'); }} className="w-full py-3 bg-red-900/40 hover:bg-red-600 border border-red-500/50 text-white font-bold rounded uppercase text-xs transition-all mb-2">⚙️ Personalizar (Criar do Zero)</button>
             <button onClick={() => setShowMonsterSelector(false)} className="w-full py-2 text-xs text-gray-500 hover:text-white border border-transparent hover:border-white/20 rounded">Cancelar</button>
           </div>
         </div>
       )}
 
-      {/* 2. CONTAINER COM ESTILO E LARGURA FIXA */}
-      <div 
-        className="flex flex-col h-full border-l-8 border-[#2a2018] relative"
-        style={sidebarStyle}
-      >
-        {/* 3. VINHETA PARA SOMBRA INTERNA */}
+      {/* --- MODAL PARA DEFINIR DIFICULDADE (CD) --- */}
+      {pendingSkillRequest && targetEntity && (
+          <div className="fixed inset-0 z-[400] flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={() => setPendingSkillRequest(null)}>
+              <div className="bg-[#15151a] border border-purple-500/50 p-6 rounded-lg shadow-2xl w-80 animate-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
+                  <h3 className="text-purple-400 font-bold text-center uppercase tracking-widest mb-1">Solicitar Teste</h3>
+                  <p className="text-white text-center font-serif text-xl mb-4">{pendingSkillRequest.skillName}</p>
+                  
+                  <div className="bg-black/40 p-3 rounded mb-4 text-center">
+                      <p className="text-xs text-gray-400 mb-1">Alvo</p>
+                      <p className="text-white font-bold">{targetEntity.name}</p>
+                  </div>
+
+                  <div className="mb-6 text-center">
+                      <label className="block text-xs text-yellow-500 font-bold mb-2 uppercase">Classe de Dificuldade (CD)</label>
+                      <div className="flex items-center justify-center gap-4">
+                          <button onClick={() => setDcInput(Math.max(5, dcInput - 5))} className="w-8 h-8 rounded bg-gray-800 text-white hover:bg-gray-700">-5</button>
+                          <input 
+                              type="number" 
+                              value={dcInput} 
+                              onChange={(e) => setDcInput(parseInt(e.target.value) || 10)}
+                              className="w-16 bg-black border border-yellow-600/50 text-center text-2xl font-bold text-yellow-500 rounded p-1"
+                          />
+                          <button onClick={() => setDcInput(dcInput + 5)} className="w-8 h-8 rounded bg-gray-800 text-white hover:bg-gray-700">+5</button>
+                      </div>
+                  </div>
+
+                  <button 
+                      onClick={handleConfirmRequest}
+                      className="w-full py-3 bg-gradient-to-r from-purple-700 to-indigo-800 text-white font-bold uppercase tracking-widest rounded shadow-lg hover:brightness-110 transition-all"
+                  >
+                      Exigir Rolagem
+                  </button>
+              </div>
+          </div>
+      )}
+
+      <div className="flex flex-col h-full border-l-8 border-[#2a2018] relative" style={sidebarStyle}>
         <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-black/20 via-transparent to-black/40 z-0" />
 
-        {/* 4. CONTEÚDO COM Z-10 PARA FICAR ACIMA DA VINHETA */}
         <div className="relative z-10 flex flex-col h-full w-full">
             <div className="flex border-b border-white/10 bg-black/40 flex-shrink-0">
                 <button onClick={() => setMainTab('tools')} className={`flex-1 py-3 text-center text-sm font-bold uppercase tracking-wider transition-all ${mainTab === 'tools' ? 'text-white bg-rpgAccent/20 border-b-2 border-rpgAccent' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`}>🛠️ Ferramentas</button>
@@ -384,12 +436,53 @@ const SidebarDM: React.FC<SidebarDMProps> = ({
                 <div className="flex flex-col h-full overflow-hidden w-full">
                     <div className="flex border-b border-white/10 bg-black/40 flex-shrink-0">
                         <button onClick={() => setActiveTab('combat')} className={`flex-1 py-2 text-center text-lg transition-all ${activeTab === 'combat' ? 'text-white bg-rpgAccent/20 border-b-2 border-rpgAccent' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`} title="Combate">⚔️</button>
-                        <button onClick={() => setActiveTab('map')} className={`flex-1 py-2 text-center text-lg transition-all ${activeTab === 'map' ? 'text-white bg-rpgAccent/20 border-b-2 border-rpgAccent' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`} title="Mapa & Ferramentas">🗺️</button>
+                        <button onClick={() => setActiveTab('map')} className={`flex-1 py-2 text-center text-lg transition-all ${activeTab === 'map' ? 'text-white bg-rpgAccent/20 border-b-2 border-rpgAccent' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`} title="Mapa">🗺️</button>
+                        
+                        {/* ABA DE FERRAMENTAS */}
+                        <button onClick={() => setActiveTab('tools')} className={`flex-1 py-2 text-center text-lg transition-all ${activeTab === 'tools' ? 'text-white bg-rpgAccent/20 border-b-2 border-rpgAccent' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`} title="Forja e Dados">🔨</button>
+                        
                         <button onClick={() => setActiveTab('create')} className={`flex-1 py-2 text-center text-lg transition-all ${activeTab === 'create' ? 'text-white bg-rpgAccent/20 border-b-2 border-rpgAccent' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`} title="Criar Entidades">🐉</button>
                         <button onClick={() => setActiveTab('audio')} className={`flex-1 py-2 text-center text-lg transition-all ${activeTab === 'audio' ? 'text-white bg-rpgAccent/20 border-b-2 border-rpgAccent' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`} title="Áudio">🔊</button>
                     </div>
 
                     <div className="flex-grow overflow-y-auto p-4 custom-scrollbar w-full">
+                        
+                        {/* CONTEÚDO DA ABA FERRAMENTAS */}
+                        {activeTab === 'tools' && (
+                            <div className="animate-in fade-in slide-in-from-right-4 duration-300 space-y-6">
+                                <div className="bg-black/40 p-4 rounded-xl border border-white/5">
+                                    <h3 className="text-purple-400 text-xs font-bold uppercase tracking-widest mb-3">Teste de Perícia</h3>
+                                    {targetEntity ? (
+                                        <>
+                                            <div className="mb-4 flex items-center gap-3 bg-purple-900/20 p-2 rounded">
+                                                <div className="w-8 h-8 rounded-full overflow-hidden bg-gray-700">
+                                                    {targetEntity.image && <img src={targetEntity.image} className="w-full h-full object-cover" alt="" />}
+                                                </div>
+                                                <div>
+                                                    <p className="text-sm font-bold text-white">{targetEntity.name}</p>
+                                                    <p className="text-[10px] text-gray-400">Solicitando Teste</p>
+                                                </div>
+                                            </div>
+                                            
+                                            {/* SkillList em Modo DM: Clicar abre o modal de CD */}
+                                            <SkillList 
+                                                attributes={mapEntityStatsToAttributes(targetEntity)}
+                                                proficiencyBonus={2} 
+                                                profs={[]}
+                                                isDmMode={true}
+                                                onRoll={(skillName, mod) => setPendingSkillRequest({ skillName, mod })}
+                                            />
+                                        </>
+                                    ) : (
+                                        <p className="text-gray-500 text-sm italic text-center py-4 bg-white/5 rounded border border-dashed border-white/10">
+                                            Selecione um token no mapa para rolar perícias.
+                                        </p>
+                                    )}
+                                </div>
+                                <ItemCreator />
+                            </div>
+                        )}
+
                         {activeTab === 'combat' && (
                             <div className="animate-in fade-in slide-in-from-right-4 duration-300">
                                 <CombatVsPanel attacker={attacker} targets={targets} onUpdateHP={onUpdateHP} onSendMessage={onSendMessage} />
@@ -404,10 +497,10 @@ const SidebarDM: React.FC<SidebarDMProps> = ({
                                 <section className="mb-4 bg-black/40 border border-white/10 rounded p-2">
                                     <h3 className="text-[10px] text-gray-400 uppercase mb-2 text-center font-bold tracking-widest">Condições</h3>
                                     <div className="grid grid-cols-2 gap-2">
-                                        <button onClick={() => toggleConditionForAll('poison')} className="flex items-center gap-2 px-3 py-2 bg-green-900/40 hover:bg-green-600/60 border border-green-500/30 hover:border-green-400 rounded transition-all active:scale-95 group" title="Envenenado"><span className="text-lg filter drop-shadow-md group-hover:scale-110 transition-transform">☠️</span><span className="text-[10px] font-bold text-green-100 uppercase tracking-wider">Veneno</span></button>
-                                        <button onClick={() => toggleConditionForAll('stun')} className="flex items-center gap-2 px-3 py-2 bg-yellow-900/40 hover:bg-yellow-600/60 border border-yellow-500/30 hover:border-yellow-400 rounded transition-all active:scale-95 group" title="Atordoado"><span className="text-lg filter drop-shadow-md group-hover:scale-110 transition-transform">💫</span><span className="text-[10px] font-bold text-yellow-100 uppercase tracking-wider">Atordoar</span></button>
-                                        <button onClick={() => toggleConditionForAll('fire')} className="flex items-center gap-2 px-3 py-2 bg-red-900/40 hover:bg-red-600/60 border border-red-500/30 hover:border-red-400 rounded transition-all active:scale-95 group" title="Em Chamas"><span className="text-lg filter drop-shadow-md group-hover:scale-110 transition-transform">🔥</span><span className="text-[10px] font-bold text-red-100 uppercase tracking-wider">Fogo</span></button>
-                                        <button onClick={() => toggleConditionForAll('sleep')} className="flex items-center gap-2 px-3 py-2 bg-purple-900/40 hover:bg-purple-600/60 border border-purple-500/30 hover:border-purple-400 rounded transition-all active:scale-95 group" title="Dormindo"><span className="text-lg filter drop-shadow-md group-hover:scale-110 transition-transform">💤</span><span className="text-[10px] font-bold text-purple-100 uppercase tracking-wider">Sono</span></button>
+                                            <button onClick={() => toggleConditionForAll('poison')} className="flex items-center gap-2 px-3 py-2 bg-green-900/40 hover:bg-green-600/60 border border-green-500/30 hover:border-green-400 rounded transition-all active:scale-95 group" title="Envenenado"><span className="text-lg filter drop-shadow-md group-hover:scale-110 transition-transform">☠️</span><span className="text-[10px] font-bold text-green-100 uppercase tracking-wider">Veneno</span></button>
+                                            <button onClick={() => toggleConditionForAll('stun')} className="flex items-center gap-2 px-3 py-2 bg-yellow-900/40 hover:bg-yellow-600/60 border border-yellow-500/30 hover:border-yellow-400 rounded transition-all active:scale-95 group" title="Atordoado"><span className="text-lg filter drop-shadow-md group-hover:scale-110 transition-transform">💫</span><span className="text-[10px] font-bold text-yellow-100 uppercase tracking-wider">Atordoar</span></button>
+                                            <button onClick={() => toggleConditionForAll('fire')} className="flex items-center gap-2 px-3 py-2 bg-red-900/40 hover:bg-red-600/60 border border-red-500/30 hover:border-red-400 rounded transition-all active:scale-95 group" title="Em Chamas"><span className="text-lg filter drop-shadow-md group-hover:scale-110 transition-transform">🔥</span><span className="text-[10px] font-bold text-red-100 uppercase tracking-wider">Fogo</span></button>
+                                            <button onClick={() => toggleConditionForAll('sleep')} className="flex items-center gap-2 px-3 py-2 bg-purple-900/40 hover:bg-purple-600/60 border border-purple-500/30 hover:border-purple-400 rounded transition-all active:scale-95 group" title="Dormindo"><span className="text-lg filter drop-shadow-md group-hover:scale-110 transition-transform">💤</span><span className="text-[10px] font-bold text-purple-100 uppercase tracking-wider">Sono</span></button>
                                     </div>
                                 </section>
                                 <section className="mb-8">
@@ -419,13 +512,11 @@ const SidebarDM: React.FC<SidebarDMProps> = ({
 
                         {activeTab === 'map' && (
                             <div className="animate-in fade-in slide-in-from-right-4 duration-300">
-                                
-                                {/* SEÇÃO: MAPA CUSTOMIZADO */}
                                 <section className="mb-6 border-b border-white/5 pb-4">
                                     <h3 className="text-rpgText font-mono text-[10px] uppercase mb-2 opacity-50 tracking-widest">Mapa Customizado</h3>
                                     <div className="flex gap-2">
-                                        <input type="text" placeholder="Cole o link da imagem..." className="w-full bg-black/50 border border-white/20 rounded p-2 text-xs text-white outline-none focus:border-blue-500" value={customMapUrl} onChange={(e) => setCustomMapUrl(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleLoadCustomMap()} />
-                                        <button onClick={handleLoadCustomMap} className="bg-blue-600 hover:bg-blue-500 text-white font-bold px-3 rounded text-xs transition-colors disabled:opacity-50" disabled={!customMapUrl.trim()}>Ir</button>
+                                            <input type="text" placeholder="Cole o link da imagem..." className="w-full bg-black/50 border border-white/20 rounded p-2 text-xs text-white outline-none focus:border-blue-500" value={customMapUrl} onChange={(e) => setCustomMapUrl(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleLoadCustomMap()} />
+                                            <button onClick={handleLoadCustomMap} className="bg-blue-600 hover:bg-blue-500 text-white font-bold px-3 rounded text-xs transition-colors disabled:opacity-50" disabled={!customMapUrl.trim()}>Ir</button>
                                     </div>
                                     <div className="mt-2 flex items-center justify-center"><span className="text-[9px] text-gray-500 uppercase mr-2">OU</span><div className="h-px bg-white/10 flex-grow"></div></div>
                                     <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept="image/*" />
@@ -433,23 +524,22 @@ const SidebarDM: React.FC<SidebarDMProps> = ({
                                     <p className="text-[9px] text-gray-500 mt-2 italic">Recomendado: 1920x1080 (Pequeno) ou 2800x2800 (Médio).</p>
                                 </section>
 
-                                {/* --- AMBIENTE & ILUMINAÇÃO (ITEM 3) --- */}
                                 <section className="mb-6 border-b border-white/5 pb-4">
                                     <h3 className="text-rpgText font-mono text-[10px] uppercase mb-2 opacity-50 tracking-widest">Ambiente & Luz</h3>
                                     <div className="bg-black/40 p-2 rounded border border-white/10">
-                                        <div className="flex justify-between items-center mb-1">
-                                            <span className="text-xs font-bold text-yellow-500">
-                                                {globalBrightness >= 1 ? '☀️ Dia' : globalBrightness <= 0.2 ? '🌑 Noite' : '🌅 Crepúsculo'}
-                                            </span>
-                                            <span className="text-[10px] text-gray-500">{Math.round(globalBrightness * 100)}%</span>
-                                        </div>
-                                        <input 
-                                            type="range" 
-                                            min="0" max="1" step="0.05"
-                                            value={globalBrightness}
-                                            onChange={(e) => onSetGlobalBrightness && onSetGlobalBrightness(parseFloat(e.target.value))}
-                                            className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-yellow-500"
-                                        />
+                                            <div className="flex justify-between items-center mb-1">
+                                                <span className="text-xs font-bold text-yellow-500">
+                                                    {globalBrightness >= 1 ? '☀️ Dia' : globalBrightness <= 0.2 ? '🌑 Noite' : '🌅 Crepúsculo'}
+                                                </span>
+                                                <span className="text-[10px] text-gray-500">{Math.round(globalBrightness * 100)}%</span>
+                                            </div>
+                                            <input 
+                                                type="range" 
+                                                min="0" max="1" step="0.05"
+                                                value={globalBrightness}
+                                                onChange={(e) => onSetGlobalBrightness && onSetGlobalBrightness(parseFloat(e.target.value))}
+                                                className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-yellow-500"
+                                            />
                                     </div>
                                 </section>
 
@@ -461,19 +551,19 @@ const SidebarDM: React.FC<SidebarDMProps> = ({
                                     <h3 className="text-rpgText font-mono text-[10px] uppercase mb-2 opacity-50 tracking-widest text-center">Magias & Áreas</h3>
                                     <AoEColorPicker selected={aoeColor} onSelect={onSetAoEColor} />
                                     <div className="flex gap-2 mt-3">
-                                        <button onClick={() => onSetAoE(activeAoE === 'circle' ? null : 'circle')} className={`flex-1 py-2 rounded text-[10px] font-bold border transition-all flex flex-col items-center gap-1 ${activeAoE === 'circle' ? 'border-white text-white bg-white/10' : 'border-white/10 text-gray-400 hover:bg-white/5'}`} style={activeAoE === 'circle' ? {borderColor: aoeColor, color: aoeColor} : {}}><span className="text-lg">⭕</span> Círculo</button>
-                                        <button onClick={() => onSetAoE(activeAoE === 'cone' ? null : 'cone')} className={`flex-1 py-2 rounded text-[10px] font-bold border transition-all flex flex-col items-center gap-1 ${activeAoE === 'cone' ? 'border-white text-white bg-white/10' : 'border-white/10 text-gray-400 hover:bg-white/5'}`} style={activeAoE === 'cone' ? {borderColor: aoeColor, color: aoeColor} : {}}><span className="text-lg">🔺</span> Cone</button>
-                                        <button onClick={() => onSetAoE(activeAoE === 'cube' ? null : 'cube')} className={`flex-1 py-2 rounded text-[10px] font-bold border transition-all flex flex-col items-center gap-1 ${activeAoE === 'cube' ? 'border-white text-white bg-white/10' : 'border-white/10 text-gray-400 hover:bg-white/5'}`} style={activeAoE === 'cube' ? {borderColor: aoeColor, color: aoeColor} : {}}><span className="text-lg">🟥</span> Cubo</button>
+                                            <button onClick={() => onSetAoE(activeAoE === 'circle' ? null : 'circle')} className={`flex-1 py-2 rounded text-[10px] font-bold border transition-all flex flex-col items-center gap-1 ${activeAoE === 'circle' ? 'border-white text-white bg-white/10' : 'border-white/10 text-gray-400 hover:bg-white/5'}`} style={activeAoE === 'circle' ? {borderColor: aoeColor, color: aoeColor} : {}}><span className="text-lg">⭕</span> Círculo</button>
+                                            <button onClick={() => onSetAoE(activeAoE === 'cone' ? null : 'cone')} className={`flex-1 py-2 rounded text-[10px] font-bold border transition-all flex flex-col items-center gap-1 ${activeAoE === 'cone' ? 'border-white text-white bg-white/10' : 'border-white/10 text-gray-400 hover:bg-white/5'}`} style={activeAoE === 'cone' ? {borderColor: aoeColor, color: aoeColor} : {}}><span className="text-lg">🔺</span> Cone</button>
+                                            <button onClick={() => onSetAoE(activeAoE === 'cube' ? null : 'cube')} className={`flex-1 py-2 rounded text-[10px] font-bold border transition-all flex flex-col items-center gap-1 ${activeAoE === 'cube' ? 'border-white text-white bg-white/10' : 'border-white/10 text-gray-400 hover:bg-white/5'}`} style={activeAoE === 'cube' ? {borderColor: aoeColor, color: aoeColor} : {}}><span className="text-lg">🟥</span> Cubo</button>
                                     </div>
                                     {activeAoE && <p className="text-[9px] mt-2 text-center animate-pulse opacity-80" style={{color: aoeColor}}>🖌️ Clique e arraste no mapa</p>}
                                 </section>
                                 <section className="mb-6 border-b border-white/5 pb-4 bg-black/20 rounded p-2">
                                     <h3 className="text-rpgText font-mono text-[10px] uppercase mb-3 opacity-50 tracking-widest">Neblina de Guerra</h3>
                                     <div className="flex flex-col gap-2">
-                                        <button onClick={onToggleFogMode} className={`w-full py-2 rounded text-xs font-bold uppercase tracking-wider border transition-all ${isFogMode ? 'bg-yellow-600 border-yellow-400 text-white shadow-sm' : 'bg-gray-800 border-gray-600 text-gray-400 hover:bg-gray-700'}`}>{isFogMode ? '✎ Modo Edição Ativo' : '✎ Editar Neblina'}</button>
-                                        {isFogMode && (<div className="flex gap-1 bg-black/40 p-1 rounded border border-white/10 mt-1 mb-1"><button onClick={() => onSetFogTool('reveal')} className={`flex-1 py-1 text-[10px] uppercase font-bold rounded transition-colors ${fogTool === 'reveal' ? 'bg-green-600 text-white shadow-sm' : 'hover:bg-white/10 text-gray-400'}`}>🔦 Revelar</button><button onClick={() => onSetFogTool('hide')} className={`flex-1 py-1 text-[10px] uppercase font-bold rounded transition-colors ${fogTool === 'hide' ? 'bg-red-600 text-white shadow-sm' : 'hover:bg-white/10 text-gray-400'}`}>☁️ Esconder</button></div>)}
-                                        <div className="flex gap-2"><button onClick={onRevealAll} className="flex-1 py-1 bg-gray-800 hover:bg-gray-700 text-[9px] text-gray-400 rounded border border-gray-700">Tudo Visível</button><button onClick={onResetFog} className="flex-1 py-1 bg-gray-800 hover:bg-gray-700 text-[9px] text-gray-400 rounded border border-gray-700">Tudo Preto</button></div>
-                                        <button onClick={onSyncFog} className="w-full py-1 mt-2 bg-purple-900/30 hover:bg-purple-600/50 border border-purple-500/30 text-[9px] text-purple-200 uppercase font-bold rounded transition-all">📡 Sincronizar Jogadores</button>
+                                            <button onClick={onToggleFogMode} className={`w-full py-2 rounded text-xs font-bold uppercase tracking-wider border transition-all ${isFogMode ? 'bg-yellow-600 border-yellow-400 text-white shadow-sm' : 'bg-gray-800 border-gray-600 text-gray-400 hover:bg-gray-700'}`}>{isFogMode ? '✎ Modo Edição Ativo' : '✎ Editar Neblina'}</button>
+                                            {isFogMode && (<div className="flex gap-1 bg-black/40 p-1 rounded border border-white/10 mt-1 mb-1"><button onClick={() => onSetFogTool('reveal')} className={`flex-1 py-1 text-[10px] uppercase font-bold rounded transition-colors ${fogTool === 'reveal' ? 'bg-green-600 text-white shadow-sm' : 'hover:bg-white/10 text-gray-400'}`}>🔦 Revelar</button><button onClick={() => onSetFogTool('hide')} className={`flex-1 py-1 text-[10px] uppercase font-bold rounded transition-colors ${fogTool === 'hide' ? 'bg-red-600 text-white shadow-sm' : 'hover:bg-white/10 text-gray-400'}`}>☁️ Esconder</button></div>)}
+                                            <div className="flex gap-2"><button onClick={onRevealAll} className="flex-1 py-1 bg-gray-800 hover:bg-gray-700 text-[9px] text-gray-400 rounded border border-gray-700">Tudo Visível</button><button onClick={onResetFog} className="flex-1 py-1 bg-gray-800 hover:bg-gray-700 text-[9px] text-gray-400 rounded border border-gray-700">Tudo Preto</button></div>
+                                            <button onClick={onSyncFog} className="w-full py-1 mt-2 bg-purple-900/30 hover:bg-purple-600/50 border border-purple-500/30 text-[9px] text-purple-200 uppercase font-bold rounded transition-all">📡 Sincronizar Jogadores</button>
                                     </div>
                                 </section>
                                 <div className="px-2"><button onClick={onSaveGame} className="w-full py-2 bg-green-900/40 hover:bg-green-600/60 border border-green-500/30 text-green-200 text-xs font-bold uppercase rounded transition-all shadow-lg">💾 Salvar Estado do Jogo</button></div>

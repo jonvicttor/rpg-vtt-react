@@ -6,6 +6,10 @@ import LevelUpModal from './LevelUpModal';
 import { getLevelFromXP, getNextLevelXP, getProficiencyBonus, calculateHPGain, XP_TABLE } from '../utils/gameRules';
 import ItemCard from './ItemCard';
 
+// --- ALTERAÇÃO: IMPORTAÇÃO DOS NOVOS COMPONENTES ---
+import SkillList from './SkillList';
+import { mapEntityStatsToAttributes } from '../utils/attributeMapping';
+
 const CLASS_ABILITIES: Record<string, { name: string; max: number; icon: string; desc: string; color: string; unlockLevel: number }[]> = {
   'BARBARO': [
     { name: 'Fúria', max: 2, icon: '😡', desc: 'Vantagem em FOR, Resistência a dano.', color: 'text-red-500', unlockLevel: 1 },
@@ -90,19 +94,24 @@ const SidebarPlayer: React.FC<SidebarPlayerProps> = ({
   const calculatedLevel = getLevelFromXP(currentXP);
   const savedLevel = myCharacter?.level || 1;
 
-  // --- ESTILO DE COURO ---
+  // --- ALTERAÇÃO: PREPARAÇÃO PARA O SKILL LIST ---
+  // Calcula o bônus de proficiência baseado no nível
+  const proficiencyBonus = getProficiencyBonus(savedLevel);
+  // Converte os stats (str, dex) para o formato (FOR, DES)
+  const attributes = myCharacter ? mapEntityStatsToAttributes(myCharacter) : { FOR: 10, DES: 10, CON: 10, INT: 10, SAB: 10, CAR: 10 };
+  // Array vazio por enquanto, futuramente virá de myCharacter.profs
+  const myProfs: string[] = []; 
+
   const sidebarStyle = {
     backgroundColor: '#1a1510', 
     backgroundImage: `url('/assets/bg-couro-sidebar.png')`, 
     backgroundSize: 'cover', 
     backgroundRepeat: 'no-repeat',
     boxShadow: 'inset 0 0 60px rgba(0,0,0,0.9)',
-    
-    // --- TRAVA DE LARGURA CORRIGIDA ---
-    width: '420px',      // Tamanho fixo pedido
-    minWidth: '420px',   // Impede encolhimento
-    maxWidth: '420px',   // Impede crescimento
-    flex: '0 0 420px'    // Instrução forte para o Flexbox pai
+    width: '420px',      
+    minWidth: '420px',   
+    maxWidth: '420px',   
+    flex: '0 0 420px'    
   };
 
   useEffect(() => {
@@ -255,7 +264,6 @@ const SidebarPlayer: React.FC<SidebarPlayerProps> = ({
   const currentLevelBaseXP = XP_TABLE[savedLevel - 1] || 0;
   const xpVisivel = currentXP - currentLevelBaseXP;
   const xpNecessarioNoNivel = nextLevelTotalXP - currentLevelBaseXP;
-  const profBonus = getProficiencyBonus(savedLevel);
   const xpPercent = Math.min(100, (xpVisivel / xpNecessarioNoNivel) * 100);
 
   return (
@@ -270,11 +278,6 @@ const SidebarPlayer: React.FC<SidebarPlayerProps> = ({
             />
         )}
 
-        {/* CORREÇÃO CRÍTICA DO CONTAINER:
-            - z-50: Garante que a sidebar fique ACIMA dos dados vazados.
-            - box-border: Garante que a borda de 8px não roube espaço interno.
-            - flex-shrink-0: Impede que o mapa esmague a sidebar.
-        */}
         <div 
             className="box-border flex flex-col h-full border-l-8 border-[#2a2018] relative z-50"
             style={sidebarStyle} 
@@ -298,12 +301,12 @@ const SidebarPlayer: React.FC<SidebarPlayerProps> = ({
                                 <h3 className="text-yellow-500 font-mono text-xs uppercase tracking-widest mb-3 border-b border-white/5 pb-1">Iniciativa</h3>
                                 {initiativeList && initiativeList.length > 0 ? (
                                     <div className="flex flex-col gap-1 max-h-40 overflow-y-auto pr-1 custom-scrollbar">
-                                        {initiativeList.map((item) => (
-                                            <div key={item.id} className={`flex justify-between items-center p-2 rounded text-xs transition-all ${item.id === activeTurnId ? 'bg-yellow-900/40 border border-yellow-500/50 shadow-[0_0_10px_rgba(234,179,8,0.2)]' : 'bg-white/5'}`}>
-                                                <span className={`${item.id === activeTurnId ? 'text-yellow-200 font-bold' : 'text-gray-400'}`}>{item.value} - {item.name}</span>
-                                                {item.id === activeTurnId && <span className="text-[10px] text-yellow-500 animate-pulse">◀ VEZ</span>}
-                                            </div>
-                                        ))}
+                                            {initiativeList.map((item) => (
+                                                <div key={item.id} className={`flex justify-between items-center p-2 rounded text-xs transition-all ${item.id === activeTurnId ? 'bg-yellow-900/40 border border-yellow-500/50 shadow-[0_0_10px_rgba(234,179,8,0.2)]' : 'bg-white/5'}`}>
+                                                    <span className={`${item.id === activeTurnId ? 'text-yellow-200 font-bold' : 'text-gray-400'}`}>{item.value} - {item.name}</span>
+                                                    {item.id === activeTurnId && <span className="text-[10px] text-yellow-500 animate-pulse">◀ VEZ</span>}
+                                                </div>
+                                            ))}
                                     </div>
                                 ) : (
                                     <p className="text-gray-600 text-xs text-center py-2 italic">Aguardando combate...</p>
@@ -328,94 +331,86 @@ const SidebarPlayer: React.FC<SidebarPlayerProps> = ({
                                             <div className="text-2xl font-black text-yellow-500 leading-none drop-shadow-md">
                                                 <span className="text-[10px] text-gray-500 font-normal mr-1 align-middle">NÍVEL</span>{savedLevel}
                                             </div>
-                                            <div className="text-[10px] text-gray-400 font-mono bg-white/5 px-1 rounded mt-1 inline-block">PB: <span className="text-white font-bold">+{profBonus}</span></div>
+                                            <div className="text-[10px] text-gray-400 font-mono bg-white/5 px-1 rounded mt-1 inline-block">PB: <span className="text-white font-bold">+{proficiencyBonus}</span></div>
                                         </div>
                                     </div>
 
                                     <div className="space-y-3 mb-6 relative z-10">
-                                        <div>
-                                            <div className="flex justify-between text-xs text-gray-400 mb-1 font-mono">
-                                                <span>PV (Vida)</span>
-                                                <span className="text-green-400 font-bold">{myCharacter.hp} / {myCharacter.maxHp}</span>
+                                            <div>
+                                                <div className="flex justify-between text-xs text-gray-400 mb-1 font-mono">
+                                                    <span>PV (Vida)</span>
+                                                    <span className="text-green-400 font-bold">{myCharacter.hp} / {myCharacter.maxHp}</span>
+                                                </div>
+                                                <div className="w-full h-2 bg-gray-900 rounded-full overflow-hidden border border-white/10">
+                                                    <div className="h-full bg-green-500 transition-all duration-500" style={{ width: `${Math.max(0, Math.min(100, (myCharacter.hp / myCharacter.maxHp) * 100))}%` }}></div>
+                                                </div>
                                             </div>
-                                            <div className="w-full h-2 bg-gray-900 rounded-full overflow-hidden border border-white/10">
-                                                <div className="h-full bg-green-500 transition-all duration-500" style={{ width: `${Math.max(0, Math.min(100, (myCharacter.hp / myCharacter.maxHp) * 100))}%` }}></div>
+                                            <div>
+                                                <div className="flex justify-between text-[10px] text-gray-500 mb-1 font-mono">
+                                                    <span>Experiência</span>
+                                                    <span className="text-purple-300">{xpVisivel} / {xpNecessarioNoNivel}</span>
+                                                </div>
+                                                <div className="w-full h-1.5 bg-gray-900 rounded-full overflow-hidden border border-white/10 relative">
+                                                    <div className="h-full bg-gradient-to-r from-purple-700 to-purple-500 shadow-[0_0_10px_rgba(168,85,247,0.5)] transition-all duration-700" style={{ width: `${xpPercent}%` }}></div>
+                                                </div>
                                             </div>
-                                        </div>
-                                        <div>
-                                            <div className="flex justify-between text-[10px] text-gray-500 mb-1 font-mono">
-                                                <span>Experiência</span>
-                                                <span className="text-purple-300">{xpVisivel} / {xpNecessarioNoNivel}</span>
-                                            </div>
-                                            <div className="w-full h-1.5 bg-gray-900 rounded-full overflow-hidden border border-white/10 relative">
-                                                <div className="h-full bg-gradient-to-r from-purple-700 to-purple-500 shadow-[0_0_10px_rgba(168,85,247,0.5)] transition-all duration-700" style={{ width: `${xpPercent}%` }}></div>
-                                            </div>
-                                        </div>
                                     </div>
 
                                     <div className="mb-6 relative z-10">
-                                        <p className="text-[10px] text-gray-500 uppercase font-bold mb-2 tracking-widest border-b border-white/5 pb-1">Habilidades de Classe</p>
-                                        <div className="flex flex-col gap-2">
-                                            {CLASS_ABILITIES[myCharacter.classType?.toUpperCase() || 'GUERREIRO']?.map((ability, idx) => {
-                                                if (savedLevel < ability.unlockLevel) return null;
-                                                const usageKey = `${myCharacter.name}_${ability.name}`;
-                                                const usedCount = abilityUsage[usageKey] || 0;
-                                                const isExhausted = ability.max !== 99 && usedCount >= ability.max;
+                                            <p className="text-[10px] text-gray-500 uppercase font-bold mb-2 tracking-widest border-b border-white/5 pb-1">Habilidades de Classe</p>
+                                            <div className="flex flex-col gap-2">
+                                                {CLASS_ABILITIES[myCharacter.classType?.toUpperCase() || 'GUERREIRO']?.map((ability, idx) => {
+                                                    if (savedLevel < ability.unlockLevel) return null;
+                                                    const usageKey = `${myCharacter.name}_${ability.name}`;
+                                                    const usedCount = abilityUsage[usageKey] || 0;
+                                                    const isExhausted = ability.max !== 99 && usedCount >= ability.max;
 
-                                                return (
-                                                    <button 
-                                                        key={idx}
-                                                        onClick={(e) => { e.stopPropagation(); handleUseAbility(ability.name, ability.max, ability.desc); }}
-                                                        disabled={isExhausted}
-                                                        className={`flex items-center gap-3 p-2 rounded border transition-all text-left group w-full ${isExhausted ? 'bg-gray-800/50 border-transparent opacity-50 cursor-not-allowed' : 'bg-black/30 border-white/5 hover:border-blue-500/30 hover:bg-blue-900/10'}`}
-                                                    >
-                                                        <span className={`text-xl ${ability.color} ${isExhausted ? 'grayscale' : ''}`}>{ability.icon}</span>
-                                                        <div className="flex-grow min-w-0">
-                                                            <div className="flex justify-between items-center">
-                                                                <span className={`text-xs font-bold truncate ${isExhausted ? 'text-gray-500' : 'text-gray-200 group-hover:text-white'}`}>{ability.name}</span>
-                                                                {ability.max !== 99 && (
-                                                                    <div className="flex gap-1 flex-shrink-0">
-                                                                        {Array.from({ length: ability.max }).map((_, i) => (
-                                                                            <div key={i} className={`w-1.5 h-1.5 rounded-full ${i < usedCount ? 'bg-gray-700' : 'bg-green-400 shadow-[0_0_4px_lime]'}`}></div>
-                                                                        ))}
-                                                                    </div>
-                                                                )}
+                                                    return (
+                                                        <button 
+                                                            key={idx}
+                                                            onClick={(e) => { e.stopPropagation(); handleUseAbility(ability.name, ability.max, ability.desc); }}
+                                                            disabled={isExhausted}
+                                                            className={`flex items-center gap-3 p-2 rounded border transition-all text-left group w-full ${isExhausted ? 'bg-gray-800/50 border-transparent opacity-50 cursor-not-allowed' : 'bg-black/30 border-white/5 hover:border-blue-500/30 hover:bg-blue-900/10'}`}
+                                                        >
+                                                            <span className={`text-xl ${ability.color} ${isExhausted ? 'grayscale' : ''}`}>{ability.icon}</span>
+                                                            <div className="flex-grow min-w-0">
+                                                                <div className="flex justify-between items-center">
+                                                                    <span className={`text-xs font-bold truncate ${isExhausted ? 'text-gray-500' : 'text-gray-200 group-hover:text-white'}`}>{ability.name}</span>
+                                                                    {ability.max !== 99 && (
+                                                                        <div className="flex gap-1 flex-shrink-0">
+                                                                            {Array.from({ length: ability.max }).map((_, i) => (
+                                                                                <div key={i} className={`w-1.5 h-1.5 rounded-full ${i < usedCount ? 'bg-gray-700' : 'bg-green-400 shadow-[0_0_4px_lime]'}`}></div>
+                                                                            ))}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                                <span className="text-[9px] text-gray-500 truncate block">{ability.desc}</span>
                                                             </div>
-                                                            <span className="text-[9px] text-gray-500 truncate block">{ability.desc}</span>
-                                                        </div>
-                                                    </button>
-                                                )
-                                            })}
-                                        </div>
+                                                        </button>
+                                                    )
+                                                })}
+                                            </div>
                                     </div>
 
+                                    {/* --- ALTERAÇÃO: FICHA DE PERÍCIAS E ATRIBUTOS (SUBSTITUI O GRID ANTIGO) --- */}
                                     <div className="relative z-10">
-                                        <p className="text-[10px] text-gray-500 uppercase font-bold mb-2 tracking-widest border-b border-white/5 pb-1">Testes de Atributo</p>
-                                        <div className="grid grid-cols-3 gap-2">
-                                            {Object.entries(myCharacter.stats || {}).map(([key, val]) => {
-                                                const mod = Math.floor((val - 10) / 2);
-                                                const modStr = mod >= 0 ? `+${mod}` : `${mod}`;
-                                                return (
-                                                    <button 
-                                                        key={key}
-                                                        onClick={(e) => { e.stopPropagation(); onRollAttribute(myCharacter.name, key.toUpperCase(), mod); }}
-                                                        className="flex flex-col items-center bg-black/50 hover:bg-blue-900/40 border border-white/10 hover:border-blue-500/50 p-2 rounded transition-all group active:scale-95 min-w-0"
-                                                        title="Clique para rolar"
-                                                    >
-                                                        <span className="text-[10px] text-gray-500 uppercase font-bold">{key}</span>
-                                                        <span className="text-lg font-bold text-white group-hover:text-blue-300">{val}</span>
-                                                        <span className="text-[10px] text-blue-400 font-mono bg-blue-900/20 px-1 rounded">{modStr}</span>
-                                                    </button>
-                                                );
-                                            })}
-                                        </div>
+                                        <p className="text-[10px] text-gray-500 uppercase font-bold mb-2 tracking-widest border-b border-white/5 pb-1">Perícias & Atributos</p>
+                                        <SkillList 
+                                            attributes={attributes}
+                                            proficiencyBonus={proficiencyBonus}
+                                            profs={myProfs}
+                                            onRoll={(skillName, mod) => {
+                                                // Chamamos o onRollAttribute, que abrirá o BaldursDiceRoller no App.tsx
+                                                if(myCharacter) onRollAttribute(myCharacter.name, skillName, mod);
+                                            }}
+                                        />
                                     </div>
 
                                     <button 
-                                        onClick={(e) => { e.stopPropagation(); handleLongRest(); }}
-                                        className="w-full mt-6 py-2 bg-indigo-900/30 hover:bg-indigo-600/50 border border-indigo-500/30 text-indigo-200 text-xs font-bold uppercase tracking-widest rounded transition-all flex items-center justify-center gap-2 relative z-10"
+                                            onClick={(e) => { e.stopPropagation(); handleLongRest(); }}
+                                            className="w-full mt-6 py-2 bg-indigo-900/30 hover:bg-indigo-600/50 border border-indigo-500/30 text-indigo-200 text-xs font-bold uppercase tracking-widest rounded transition-all flex items-center justify-center gap-2 relative z-10"
                                     >
-                                        <span>⛺</span> Descanso Longo
+                                            <span>⛺</span> Descanso Longo
                                     </button>
                                 </div>
                             ) : (
@@ -440,38 +435,38 @@ const SidebarPlayer: React.FC<SidebarPlayerProps> = ({
                                     <input className="w-full bg-gray-900 border border-gray-600 rounded p-1 text-white" placeholder="Nome do Item" value={newItem.name || ''} onChange={e => setNewItem({...newItem, name: e.target.value})} />
                                     
                                     <div 
-                                        className="w-full h-16 border border-gray-600 rounded bg-gray-900 flex items-center justify-center cursor-pointer hover:border-blue-500 transition-colors overflow-hidden group"
-                                        onClick={() => fileInputRef.current?.click()}
+                                            className="w-full h-16 border border-gray-600 rounded bg-gray-900 flex items-center justify-center cursor-pointer hover:border-blue-500 transition-colors overflow-hidden group"
+                                            onClick={() => fileInputRef.current?.click()}
                                     >
-                                        <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleImageUpload} />
-                                        {newItem.image ? (
-                                            <div className="relative w-full h-full">
-                                                <img src={newItem.image} alt="Preview" className="w-full h-full object-contain" />
-                                                <div className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                                    <span className="text-[10px] text-white font-bold">Trocar</span>
+                                            <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleImageUpload} />
+                                            {newItem.image ? (
+                                                <div className="relative w-full h-full">
+                                                    <img src={newItem.image} alt="Preview" className="w-full h-full object-contain" />
+                                                    <div className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                                        <span className="text-[10px] text-white font-bold">Trocar</span>
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        ) : (
-                                            <div className="flex flex-col items-center text-gray-500">
-                                                <span className="text-xl">📷</span>
-                                                <span className="text-[9px] uppercase font-bold">Upload Imagem</span>
-                                            </div>
-                                        )}
+                                            ) : (
+                                                <div className="flex flex-col items-center text-gray-500">
+                                                    <span className="text-xl">📷</span>
+                                                    <span className="text-[9px] uppercase font-bold">Upload Imagem</span>
+                                                </div>
+                                            )}
                                     </div>
 
                                     <textarea className="w-full bg-gray-900 border border-gray-600 rounded p-1 text-white h-16" placeholder="Descrição/Lore" value={newItem.description || ''} onChange={e => setNewItem({...newItem, description: e.target.value})} />
                                     <div className="grid grid-cols-2 gap-2">
-                                        <select className="bg-gray-900 border border-gray-600 rounded p-1 text-white" value={newItem.type} onChange={e => setNewItem({...newItem, type: e.target.value as any})}>
-                                            <option value="weapon">Arma</option>
-                                            <option value="armor">Armadura</option>
-                                            <option value="potion">Poção</option>
-                                            <option value="misc">Item Geral</option>
-                                        </select>
-                                        <input type="number" className="bg-gray-900 border border-gray-600 rounded p-1 text-white" placeholder="Qtd" value={newItem.quantity} onChange={e => setNewItem({...newItem, quantity: parseInt(e.target.value)})} />
+                                            <select className="bg-gray-900 border border-gray-600 rounded p-1 text-white" value={newItem.type} onChange={e => setNewItem({...newItem, type: e.target.value as any})}>
+                                                <option value="weapon">Arma</option>
+                                                <option value="armor">Armadura</option>
+                                                <option value="potion">Poção</option>
+                                                <option value="misc">Item Geral</option>
+                                            </select>
+                                            <input type="number" className="bg-gray-900 border border-gray-600 rounded p-1 text-white" placeholder="Qtd" value={newItem.quantity} onChange={e => setNewItem({...newItem, quantity: parseInt(e.target.value)})} />
                                     </div>
                                     <div className="grid grid-cols-2 gap-2">
-                                        <input className="bg-gray-900 border border-gray-600 rounded p-1 text-white" placeholder="Dano (ex: 1d8)" value={newItem.stats?.damage || ''} onChange={e => setNewItem({...newItem, stats: { ...newItem.stats, damage: e.target.value }})} />
-                                        <input className="bg-gray-900 border border-gray-600 rounded p-1 text-white" placeholder="Valor (PO)" value={newItem.value || ''} onChange={e => setNewItem({...newItem, value: e.target.value})} />
+                                            <input className="bg-gray-900 border border-gray-600 rounded p-1 text-white" placeholder="Dano (ex: 1d8)" value={newItem.stats?.damage || ''} onChange={e => setNewItem({...newItem, stats: { ...newItem.stats, damage: e.target.value }})} />
+                                            <input className="bg-gray-900 border border-gray-600 rounded p-1 text-white" placeholder="Valor (PO)" value={newItem.value || ''} onChange={e => setNewItem({...newItem, value: e.target.value})} />
                                     </div>
                                     <button onClick={handleAddItem} className="w-full bg-blue-800 hover:bg-blue-700 text-white font-bold py-2 rounded shadow-lg">Criar Item</button>
                                 </div>
