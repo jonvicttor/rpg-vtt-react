@@ -29,12 +29,11 @@
     "web-vitals": "^2.1.4"
   },
   "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build",
-    "test": "react-scripts test",
-    "eject": "react-scripts eject",
-    "electron-dev": "concurrently \"BROWSER=none npm start\" \"wait-on http://localhost:3000 && electron .\"",
-    "dist": "npm run build && electron-builder"
+    "start": "./node_modules/.bin/react-scripts start",
+    "build": "./node_modules/.bin/react-scripts build",
+    "test": "./node_modules/.bin/react-scripts test",
+    "eject": "./node_modules/.bin/react-scripts eject",
+    "electron-dev": "./node_modules/.bin/electron ."
   },
   "eslintConfig": {
     "extends": [
@@ -56,8 +55,8 @@
   },
   "devDependencies": {
     "@types/howler": "^2.2.11",
-    "@types/react": "^18.3.3",
-    "@types/react-dom": "^18.3.0",
+    "@types/react": "^19.2.9",
+    "@types/react-dom": "^19.2.3",
     "@types/three": "^0.164.0",
     "autoprefixer": "^10.4.19",
     "concurrently": "^8.2.2",
@@ -80,7 +79,7 @@
     },
     "win": {
       "target": "nsis",
-      "icon": "public/favicon.ico"
+      "icon": "public/icon.ico"
     }
   }
 }

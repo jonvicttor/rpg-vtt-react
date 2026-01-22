@@ -179,11 +179,31 @@ function App() {
     }
   }, []);
 
+  // --- ALTERAÇÃO: EFEITOS DIVIDIDOS PARA CORRIGIR LOOP INFINITO ---
+
+  // 1. EFEITO DE CONEXÃO (Roda APENAS quando logar)
   useEffect(() => {
-    if (!isLoggedIn) return; 
-    const joinRoom = () => { socket.emit('joinRoom', ROOM_ID); };
-    joinRoom();
-    socket.on('connect', joinRoom);
+    if (!isLoggedIn) return;
+
+    // Conecta na sala
+    socket.emit('joinRoom', ROOM_ID);
+
+    const handleConnect = () => {
+      console.log("Reconectado!");
+      socket.emit('joinRoom', ROOM_ID);
+    };
+
+    socket.on('connect', handleConnect);
+
+    return () => {
+      socket.off('connect', handleConnect);
+    };
+  }, [isLoggedIn]);
+
+  // 2. EFEITO DOS LISTENERS (Ouve as atualizações, SEM dependência de entities)
+  useEffect(() => {
+    if (!isLoggedIn) return;
+
     socket.on('gameStateSync', (gameState) => {
       if (gameState.entities) setEntities(gameState.entities);
       if (gameState.fogGrid) setFogGrid(gameState.fogGrid);
@@ -194,22 +214,28 @@ function App() {
       if (gameState.customMonsters) setCustomMonsters(gameState.customMonsters);
       if (gameState.globalBrightness !== undefined) setGlobalBrightness(gameState.globalBrightness);
     });
+
     socket.on('notification', (data) => { alert(data.message); });
     socket.on('newDiceResult', () => playSound('dado'));
+    
     socket.on('chatMessage', (data) => {
         setChatMessages(prev => {
             if (prev.some(msg => msg.id === data.message.id)) return prev;
             return [...prev, data.message];
         });
     });
+
     socket.on('entityPositionUpdated', (data) => setEntities(prev => prev.map(ent => ent.id === data.entityId ? { ...ent, x: data.x, y: data.y } : ent)));
     socket.on('entityStatusUpdated', (data) => setEntities(prev => prev.map(ent => ent.id === data.entityId ? { ...ent, ...data.updates } : ent)));
     socket.on('entityCreated', (data) => setEntities(prev => { if (prev.find(e => e.id === data.entity.id)) return prev; return [...prev, data.entity]; }));
+    
     socket.on('entityDeleted', (data) => {
         setEntities(prev => prev.filter(ent => ent.id !== data.entityId));
         if (statusSelectionId === data.entityId) setStatusSelectionId(null);
     });
+
     socket.on('mapChanged', (data) => { setCurrentMap(data.mapUrl); setFogGrid(data.fogGrid); });
+    
     socket.on('fogUpdated', (data) => {
       setFogGrid(prev => {
         if (!prev || !prev[data.y]) return prev;
@@ -218,53 +244,82 @@ function App() {
         return newGrid;
       });
     });
+
     socket.on('fogGridSynced', (data) => setFogGrid(data.grid));
     socket.on('initiativeUpdated', (data) => { setInitiativeList(data.list); setActiveTurnId(data.activeTurnId); });
     socket.on('triggerAudio', (data) => { if (data.trackId === 'suspense') playSound('atmosfera'); });
+    
     socket.on('mapStateUpdated', (data) => {
       if (role === 'PLAYER') {
           setMapOffset(data.offset);
           setMapScale(data.scale);
       }
     });
+
     socket.on('globalBrightnessUpdated', (data) => {
         setGlobalBrightness(data.brightness);
     });
 
-    // --- NOVO LISTENER: O JOGADOR ESCUTA O COMANDO DO MESTRE ---
+    // Listener do Pedido de Rolagem do Mestre
     socket.on('dmRequestRoll', (data) => {
-        // data = { targetId, skillName, mod, dc }
-        
-        // Se eu sou um JOGADOR
         if (role === 'PLAYER') {
-            // Verifica se o personagem alvo é meu (pelo nome, ou ID se você tiver sistema de Login robusto)
-            const myChar = entities.find(e => e.name === playerName && e.id === data.targetId);
+            // Nota: Aqui usamos um callback funcional se precisássemos de entities atualizadas, 
+            // mas para encontrar "meu personagem" usamos setEntities com prev se necessário, 
+            // ou assumimos que o evento traz dados suficientes.
+            // Como entities não está na dependência, acessá-lo diretamente aqui pegaria o valor inicial.
+            // CORREÇÃO SEGURA: Usamos setEntities para acessar o estado mais recente ou confiamos no ID.
+            // Para simplificar e evitar complexidade, vamos confiar que o ID do alvo é o que importa
+            // e mostrar o dado. A validação real é visual.
             
-            // Se o ID bater com um personagem do tipo PLAYER na mesa (simplificação)
-            if (myChar || entities.some(e => e.id === data.targetId && e.type === 'player')) {
-                 setDiceContext({
-                    title: data.skillName,
-                    subtitle: `Exigido pelo Mestre (CD ${data.dc})`,
-                    dc: data.dc,
-                    mod: data.mod,
-                    prof: 0, 
-                    bonuses: [], 
-                    rollType: 'normal'
-                });
-                setShowBgDice(true);
-                playSound('atmosfera'); // Som de atenção
-                addLog(`⚠️ O Mestre exigiu um teste de **${data.skillName}** (CD ${data.dc})!`, 'info');
-            }
+            // Mas, para garantir que só mostramos se for o MEU char, precisamos de entities.
+            // Solução elegante: setDiceContext não depende de entities.
+            
+            // Como entities está fora da dependência, não podemos ler `entities` aqui confiavelmente.
+            // Porém, podemos ler `playerName`.
+            
+            setEntities(currentEntities => {
+                const myChar = currentEntities.find(e => e.name === playerName && e.id === data.targetId);
+                const isMyChar = myChar || currentEntities.some(e => e.id === data.targetId && e.type === 'player' && e.name === playerName);
+                
+                if (isMyChar) {
+                     setDiceContext({
+                        title: data.skillName,
+                        subtitle: `Exigido pelo Mestre (CD ${data.dc})`,
+                        dc: data.dc,
+                        mod: data.mod,
+                        prof: 0, 
+                        bonuses: [], 
+                        rollType: 'normal'
+                    });
+                    setShowBgDice(true);
+                    playSound('atmosfera');
+                    addLog(`⚠️ O Mestre exigiu um teste de **${data.skillName}** (CD ${data.dc})!`, 'info');
+                }
+                return currentEntities; // Não modifica, apenas lê
+            });
         }
     });
 
     return () => {
-      socket.off('connect', joinRoom); socket.off('gameStateSync'); socket.off('notification'); socket.off('newDiceResult'); socket.off('chatMessage'); socket.off('entityPositionUpdated'); socket.off('entityStatusUpdated'); socket.off('entityCreated'); socket.off('entityDeleted'); socket.off('mapChanged'); socket.off('fogUpdated'); socket.off('fogGridSynced'); socket.off('initiativeUpdated'); socket.off('triggerAudio'); socket.off('mapStateUpdated'); socket.off('globalBrightnessUpdated');
-      
-      // Cleanup do novo listener
+      socket.off('gameStateSync'); 
+      socket.off('notification'); 
+      socket.off('newDiceResult'); 
+      socket.off('chatMessage'); 
+      socket.off('entityPositionUpdated'); 
+      socket.off('entityStatusUpdated'); 
+      socket.off('entityCreated'); 
+      socket.off('entityDeleted'); 
+      socket.off('mapChanged'); 
+      socket.off('fogUpdated'); 
+      socket.off('fogGridSynced'); 
+      socket.off('initiativeUpdated'); 
+      socket.off('triggerAudio'); 
+      socket.off('mapStateUpdated'); 
+      socket.off('globalBrightnessUpdated');
       socket.off('dmRequestRoll');
     };
-  }, [playSound, isLoggedIn, addLog, role, statusSelectionId, entities, playerName]); // Adicionei dependências
+  }, [playSound, isLoggedIn, addLog, role, statusSelectionId, playerName]); 
+  // ^ REMOVIDO 'entities' DAS DEPENDÊNCIAS
 
   const handleMapSync = (offset: {x: number, y: number}, scale: number) => {
     setMapOffset(offset);

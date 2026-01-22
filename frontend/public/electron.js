@@ -1,7 +1,8 @@
-// public/electron.js
 const { app, BrowserWindow } = require('electron');
 const path = require('path');
-const isDev = require('electron-is-dev');
+
+// Substituímos a biblioteca externa por uma verificação nativa
+const isDev = !app.isPackaged;
 
 function createWindow() {
   // Cria a janela do navegador
@@ -10,22 +11,21 @@ function createWindow() {
     height: 720,
     webPreferences: {
       nodeIntegration: true,
-      contextIsolation: false, // Em produção, idealmente seria true com preload, mas para facilitar agora deixe false
+      contextIsolation: false,
     },
-    icon: path.join(__dirname, 'favicon.ico') // Opcional: seu ícone
+    // Se tiver ícone, ele tenta carregar, se não, ignora
+    icon: path.join(__dirname, 'favicon.ico') 
   });
 
-  // Remove a barra de menu padrão (Arquivo, Editar...)
   win.setMenuBarVisibility(false);
 
-  // Carrega a URL do React (Localhost em dev, arquivo index.html em prod)
+  // Carrega a URL do React (Localhost em dev, arquivo local em prod)
   win.loadURL(
     isDev
       ? 'http://localhost:3000'
       : `file://${path.join(__dirname, '../build/index.html')}`
   );
 
-  // Abre o DevTools apenas se estiver em modo desenvolvimento
   if (isDev) {
     win.webContents.openDevTools();
   }
