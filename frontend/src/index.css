@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cinzel:wght@400;600&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -40,4 +41,172 @@ body {
 }
 .rotate-y-180 {
   transform: rotateY(180deg);
+}
+
+/* Container para centralizar tudo na tela */
+.destiny-cta-container {
+    position: absolute; /* Ajuste conforme seu layout */
+    top: 60%; /* Ajuste a altura */
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    z-index: 10;
+    cursor: pointer; /* Indica que é clicável */
+}
+
+/* O texto pequeno */
+.cta-small {
+    font-family: 'Cinzel', serif;
+    font-size: 0.9rem;
+    text-transform: uppercase;
+    letter-spacing: 0.3em; /* Espaçamento cinemático */
+    color: #d4af37; /* Ouro pálido */
+    opacity: 0.8;
+    display: block;
+    margin-bottom: 0.5rem;
+}
+
+/* O texto principal */
+.cta-main {
+    font-family: 'Cinzel Decorative', serif;
+    font-size: 2.5rem; /* Ajuste o tamanho conforme necessário */
+    font-weight: 700;
+    text-transform: uppercase;
+    margin: 0;
+    letter-spacing: 0.1em;
+    
+    /* Mágica do Gradiente Dourado */
+    background: linear-gradient(to bottom, #fff7cc 0%, #ffbf00 50%, #d4af37 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    color: transparent; /* Fallback */
+    
+    /* Sombra e Brilho */
+    filter: drop-shadow(0 0 10px rgba(255, 191, 0, 0.5));
+    
+    /* Animação sutil de pulsar */
+    animation: pulseGold 3s infinite ease-in-out;
+}@import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cinzel:wght@400;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Reset básico e Fontes */
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow: hidden; /* Mantém a tela sem scroll para imersão */
+  background-color: #050505; /* Fundo padrão caso a imagem demore */
+}
+
+/* Scrollbar customizada */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.3);
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #4b5563;
+  border-radius: 3px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #fbbf24; /* Amber-400 no hover */
+}
+
+/* Efeitos 3D */
+.perspective-1000 {
+  perspective: 1000px;
+}
+.transform-style-3d {
+  transform-style: preserve-3d;
+}
+.backface-hidden {
+  backface-visibility: hidden;
+}
+.rotate-y-180 {
+  transform: rotateY(180deg);
+}
+
+/* Container do CTA (Chamada para Ação) */
+.destiny-cta-container {
+    position: absolute;
+    top: 60%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    z-index: 10;
+    cursor: pointer;
+    pointer-events: none; /* Deixa clicar através se necessário, ou auto se for botão */
+}
+
+/* Texto Pequeno do CTA */
+.cta-small {
+    font-family: 'Cinzel', serif;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.4em;
+    color: rgba(251, 191, 36, 0.6); /* Amber pálido */
+    display: block;
+    margin-bottom: 0.5rem;
+}
+
+/* Texto Principal do CTA (Dourado Épico) */
+.cta-main {
+    font-family: 'Cinzel Decorative', serif;
+    font-size: 2.5rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    margin: 0;
+    letter-spacing: 0.15em;
+    
+    /* Gradiente Dourado no Texto */
+    background: linear-gradient(to bottom, #fff7cc 0%, #fbbf24 50%, #b45309 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    color: transparent;
+    
+    /* Sombra e Brilho */
+    filter: drop-shadow(0 0 15px rgba(245, 158, 11, 0.4));
+    
+    /* Animação */
+    animation: pulseGold 4s infinite ease-in-out;
+}
+
+/* Linha decorativa */
+.cta-separator {
+    height: 1px;
+    width: 150px;
+    margin: 1rem auto 0;
+    background: linear-gradient(90deg, transparent, #fbbf24, transparent);
+    opacity: 0.5;
+    box-shadow: 0 0 10px #fbbf24;
+}
+
+/* Animação de Pulsar */
+@keyframes pulseGold {
+    0%, 100% { filter: drop-shadow(0 0 10px rgba(245, 158, 11, 0.3)); transform: scale(1); opacity: 0.9; }
+    50% { filter: drop-shadow(0 0 25px rgba(245, 158, 11, 0.6)); transform: scale(1.02); opacity: 1; }
+}
+
+/* Linha decorativa opcional */
+.cta-separator {
+    height: 2px;
+    width: 60%;
+    margin: 1rem auto 0;
+    background: linear-gradient(90deg, transparent, #d4af37, transparent);
+    opacity: 0.6;
+}
+
+/* Animação */
+@keyframes pulseGold {
+    0%, 100% { filter: drop-shadow(0 0 10px rgba(255, 191, 0, 0.5)); transform: scale(1); }
+    50% { filter: drop-shadow(0 0 20px rgba(255, 215, 0, 0.8)); transform: scale(1.02); }
 }

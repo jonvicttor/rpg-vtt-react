@@ -7,10 +7,12 @@ import * as THREE from 'three';
 import { Howl } from 'howler';
 
 // --- SONS ---
-const rollSound = new Howl({ src: ['/sfx/dado.mp3'], volume: 0.5 });
-const successSound = new Howl({ src: ['/sfx/levelup.mp3'], volume: 0.4 });
+const spinSound = new Howl({ src: ['/sfx/dado.mp3'], volume: 0.4, rate: 1.5 });
+const impactSound = new Howl({ src: ['/sfx/impacto_dado.mp3'], volume: 0.6 });
+const successSound = new Howl({ src: ['/sfx/levelup.mp3'], volume: 0.5 });
+const critSuccessSound = new Howl({ src: ['/sfx/crit_success.mp3'], volume: 0.7 });
 
-// --- ROTAÇÕES CALIBRADAS ---
+// --- ROTAÇÕES CALIBRADAS (X, Y, Z) ---
 const faceRotations: Record<number, [number, number, number]> = {
   20: [1.45, 0.00, 0.00], 19: [5.22, -5.28, -6.09], 18: [14.50, -10.43, 0.93],
   17: [3.45, 6.83, -4.09], 16: [5.02, -7.32, -10.36], 15: [12.83, -8.87, 0.93],
@@ -21,46 +23,75 @@ const faceRotations: Record<number, [number, number, number]> = {
   2:  [2.00, 0.98, 0.25], 1:  [4.49, -6.27, -6.34], 
 };
 
-// --- DADO ANIMADO ---
-const SpinningDice = ({ isRolling, finalResult }: { isRolling: boolean, finalResult: number | null }) => {
-  const diceRef = useRef<any>(null);
-  const targetRotation = useRef<[number, number, number]>([0, 0, 0]);
+// --- DADO CINEMÁTICO ---
+const SpinningDiceCinematic = ({ isRolling, finalResult, showImpactVFX }: { isRolling: boolean, finalResult: number | null, showImpactVFX: boolean }) => {
+  const diceRef = useRef<THREE.Group>(null);
+  const startTime = useRef<number | null>(null);
+  const initialRotation = useRef(new THREE.Euler());
 
   useEffect(() => {
-    if (finalResult !== null) {
-        if (faceRotations[finalResult]) targetRotation.current = faceRotations[finalResult];
-        else targetRotation.current = [0, 0, 0];
+    if (isRolling) {
+        startTime.current = null;
+        if (diceRef.current) initialRotation.current.copy(diceRef.current.rotation);
     }
-  }, [finalResult]);
+  }, [isRolling]);
   
   useFrame((state, delta) => {
     if (!diceRef.current) return;
 
-    // Levitação suave constante
-    diceRef.current.position.y = Math.sin(state.clock.elapsedTime) * 0.05; 
+    if (!isRolling && finalResult === null) {
+        diceRef.current.position.y = Math.sin(state.clock.elapsedTime * 2) * 0.1 + 0.8; 
+        diceRef.current.rotation.y += 0.2 * delta; 
+        diceRef.current.rotation.x = THREE.MathUtils.lerp(diceRef.current.rotation.x, 0.2, delta * 2);
+        return;
+    }
 
-    if (isRolling) {
-      // MODO ROLAGEM RÁPIDA
-      diceRef.current.rotation.x += 15 * delta;
-      diceRef.current.rotation.y += 12 * delta;
-      diceRef.current.rotation.z += 8 * delta;
-    } else if (finalResult !== null) {
-      // MODO FREIO (Damping)
-      diceRef.current.rotation.x = THREE.MathUtils.damp(diceRef.current.rotation.x, targetRotation.current[0], 4, delta);
-      diceRef.current.rotation.y = THREE.MathUtils.damp(diceRef.current.rotation.y, targetRotation.current[1], 4, delta);
-      diceRef.current.rotation.z = THREE.MathUtils.damp(diceRef.current.rotation.z, targetRotation.current[2], 4, delta);
-    } else {
-      // MODO IDLE (MOSTRUÁRIO - Antes de rolar)
-      // Mantém o 20 de frente e gira devagarzinho
-      diceRef.current.rotation.x = THREE.MathUtils.damp(diceRef.current.rotation.x, 1.45, 4, delta);
-      diceRef.current.rotation.z = THREE.MathUtils.damp(diceRef.current.rotation.z, 0, 4, delta);
-      diceRef.current.rotation.y += 0.5 * delta; 
+    if (isRolling && finalResult !== null) {
+        if (startTime.current === null) startTime.current = state.clock.elapsedTime;
+        const elapsed = state.clock.elapsedTime - startTime.current;
+
+        const spinDuration = 1.8; 
+        const snapDuration = 0.7; 
+        const totalDuration = spinDuration + snapDuration;
+
+        if (elapsed < spinDuration) {
+            diceRef.current.rotation.x += 35 * delta;
+            diceRef.current.rotation.y += 25 * delta;
+            diceRef.current.rotation.z += 15 * delta;
+            diceRef.current.position.x = (Math.random() - 0.5) * 0.05;
+            diceRef.current.position.z = (Math.random() - 0.5) * 0.05;
+            diceRef.current.position.y = 0.8 + Math.sin(elapsed * 20) * 0.1;
+        } else if (elapsed < totalDuration) {
+             const targetRot = faceRotations[finalResult] || [0,0,0];
+             const dampFactor = 12; 
+             diceRef.current.rotation.x = THREE.MathUtils.damp(diceRef.current.rotation.x, targetRot[0], dampFactor, delta);
+             diceRef.current.rotation.y = THREE.MathUtils.damp(diceRef.current.rotation.y, targetRot[1], dampFactor, delta);
+             diceRef.current.rotation.z = THREE.MathUtils.damp(diceRef.current.rotation.z, targetRot[2], dampFactor, delta);
+             diceRef.current.position.set(0, 0.8, 0);
+        } else {
+             const targetRot = faceRotations[finalResult] || [0,0,0];
+             diceRef.current.rotation.set(targetRot[0], targetRot[1], targetRot[2]);
+        }
     }
   });
 
   return (
-    <group ref={diceRef} scale={2.5} position={[0, 0.8, 0]}> 
-      <DiceModel /> 
+    <group>
+        <group ref={diceRef} scale={2.8}> 
+            <DiceModel /> 
+        </group>
+        {showImpactVFX && (
+            <Sparkles 
+                count={100}
+                scale={4}
+                size={4}
+                speed={2}
+                noise={0.2}
+                color={finalResult === 20 ? "#22c55e" : finalResult === 1 ? "#ef4444" : "#fbbf24"}
+                opacity={1}
+                position={[0, 0.8, 0]}
+            />
+        )}
     </group>
   );
 };
@@ -106,25 +137,28 @@ const BaldursDiceRoller: React.FC<BaldursDiceRollerProps> = ({
 
   const handleRoll = () => {
     if (isRolling) return;
+    
     setIsRolling(true);
     setShowTotal(false);
-    rollSound.play();
+    
+    const val = Math.floor(Math.random() * 20) + 1;
+    setResult(val); 
+    
+    spinSound.stop();
+    spinSound.play();
 
-    // 1.5 segundos de "Giro Rápido"
     setTimeout(() => {
-      const val = Math.floor(Math.random() * 20) + 1;
-      setResult(val); // Começa a frear
-      setIsRolling(false);
-      
-      const total = val + baseModifier + proficiency;
+        const total = val + baseModifier + proficiency;
+        const isCrit = val === 20;
+        const isSuccess = total >= difficultyClass;
+        
+        impactSound.play(); 
+        if (isCrit) critSuccessSound.play();
+        else if (isSuccess) successSound.play();
 
-      // Espera mais 1.6 segundos para o dado frear TOTALMENTE
-      setTimeout(() => {
-          if (total >= difficultyClass) successSound.play();
-          setShowTotal(true); // AGORA sim mostra o resultado
-      }, 1600); 
-
-    }, 1500);
+        setShowTotal(true); 
+        setIsRolling(false); 
+    }, 2500);
   };
 
   if (!isOpen) return null;
@@ -161,77 +195,108 @@ const BaldursDiceRoller: React.FC<BaldursDiceRollerProps> = ({
 
         {/* PALCO 3D */}
         <div className="w-full h-[600px] relative cursor-pointer group" onClick={!isRolling && !showTotal ? handleRoll : undefined}>
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-blue-500/10 rounded-full blur-[100px] pointer-events-none transition-opacity duration-500 group-hover:bg-blue-500/20"></div>
+            <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] rounded-full blur-[120px] pointer-events-none transition-all duration-1000 ${isRolling ? 'bg-yellow-500/30 scale-110' : 'bg-blue-500/10 scale-100'} group-hover:bg-yellow-500/20`}></div>
 
-            <Canvas camera={{ position: [0, 0, 6], fov: 40 }}>
-                <ambientLight intensity={0.2} />
-                <spotLight position={[10, 10, 10]} angle={0.3} penumbra={1} intensity={1.5} castShadow color="#fffaed" />
-                <pointLight position={[-10, -5, -10]} intensity={1} color="#4f46e5" />
-                <pointLight position={[0, -5, 5]} intensity={0.5} color="#eab308" />
+            <Canvas camera={{ position: [0, 1.5, 6], fov: 35 }}> 
+                <ambientLight intensity={0.4} />
+                <spotLight position={[5, 8, 5]} angle={0.3} penumbra={1} intensity={2} castShadow color="#fffaed" />
+                <spotLight position={[-5, -2, 0]} angle={0.5} penumbra={1} intensity={1.5} color="#eab308" />
+                <pointLight position={[0, 2, 3]} intensity={1} color="#ffffff" />
                 <Environment preset="city" />
-                <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={1} />
-                <Sparkles count={50} scale={6} size={2} speed={0.4} opacity={0.5} color="#fbbf24" />
+                <Stars radius={100} depth={50} count={3000} factor={4} saturation={0} fade speed={1.5} />
+                <Sparkles count={80} scale={8} size={2} speed={isRolling ? 2 : 0.4} opacity={0.6} color={isRolling ? "#fbbf24" : "#ffffff"} />
 
                 <Suspense fallback={null}>
-                    <SpinningDice isRolling={isRolling} finalResult={result} />
-                    <ContactShadows position={[0, -3, 0]} opacity={0.5} scale={25} blur={3} far={5} color="#000" />
+                    <SpinningDiceCinematic isRolling={isRolling} finalResult={result} showImpactVFX={showTotal} />
+                    <ContactShadows position={[0, 0, 0]} opacity={0.7} scale={15} blur={3} far={4} color="#0a0a0a" />
                 </Suspense>
                 
-                <OrbitControls enableZoom={false} enablePan={false} />
+                <OrbitControls enableZoom={false} enablePan={false} enableRotate={false} />
             </Canvas>
 
+            {/* TEXTO ÉPICO DE AÇÃO */}
             {!isRolling && result === null && (
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10 mt-40">
-                    <span className="text-yellow-100/30 uppercase tracking-[0.4em] text-xs font-bold animate-pulse border-b border-yellow-100/10 pb-1">
-                        Clique para Iniciar o Destino
-                    </span>
-                </div>
-            )}
-
-            {/* Resultado Flutuante (SÓ APARECE NO FINAL) */}
-            {!isRolling && showTotal && (
-                <div className="absolute inset-0 flex items-start justify-center pointer-events-none z-10 pt-4">
-                     <div className={`relative flex items-center justify-center animate-in zoom-in duration-300`}>
-                        <div className={`absolute w-32 h-32 blur-[40px] rounded-full ${result === 20 ? 'bg-green-500/40' : result === 1 ? 'bg-red-500/40' : 'bg-white/10'}`}></div>
-                        <span className={`text-8xl font-serif font-bold drop-shadow-[0_0_10px_rgba(0,0,0,0.8)] ${
-                            result === 20 ? 'text-transparent bg-clip-text bg-gradient-to-b from-green-200 to-green-500' : 
-                            result === 1 ? 'text-red-500' : 
-                            'text-transparent bg-clip-text bg-gradient-to-b from-white to-gray-400'
-                        }`}>
-                            {result}
-                        </span>
-                     </div>
+                <div className="absolute top-[80%] left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center z-10 pointer-events-none w-full">
+                  <p className="text-amber-100/60 text-[10px] md:text-xs uppercase tracking-[0.5em] font-serif mb-2 animate-pulse">Clique para</p>
+                  <h2 className="text-3xl md:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-b from-white via-amber-300 to-amber-600 drop-shadow-[0_0_15px_rgba(245,158,11,0.8)] uppercase tracking-[0.15em] transition-all duration-300" style={{ fontFamily: '"Cinzel Decorative", serif' }}>Iniciar o Destino</h2>
+                  <div className="w-64 h-[1px] bg-gradient-to-r from-transparent via-amber-500 to-transparent mx-auto mt-4 opacity-60 shadow-[0_0_10px_#f59e0b]"></div>
                 </div>
             )}
         </div>
 
-        {/* PAINEL DE RESULTADO (SÓ APARECE NO FINAL) */}
+        {/* --- PAINEL DE RESULTADO (PREMIUM HUD) --- */}
         {showTotal && (
-             <div className="absolute inset-0 flex items-end justify-center z-30 pointer-events-none pb-20">
-                 <div className="relative bg-[#0F0F13]/90 backdrop-blur-md px-12 py-6 rounded-lg border border-yellow-500/30 shadow-[0_0_50px_rgba(0,0,0,0.9)] flex flex-col items-center gap-4 pointer-events-auto min-w-[300px] animate-in slide-in-from-bottom-5 duration-500">
-                    <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-24 h-1 bg-gradient-to-r from-transparent via-yellow-500 to-transparent"></div>
-                    <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-2 h-2 rotate-45 bg-yellow-400 shadow-[0_0_10px_yellow]"></div>
+             <div className="absolute top-[60%] left-1/2 transform -translate-x-1/2 z-30 w-full max-w-md flex justify-center animate-in slide-in-from-bottom-10 fade-in duration-700">
+                 
+                 {/* Fundo de Vidro Mágico com Borda Dourada */}
+                 <div className="relative w-full bg-gradient-to-b from-black/80 via-[#0F0F13]/95 to-black px-8 py-6 flex flex-col items-center gap-4 border-t-2 border-yellow-500/50 shadow-[0_-10px_40px_rgba(0,0,0,0.8)] backdrop-blur-xl rounded-t-[3rem]">
+                    
+                    {/* Joia do Topo */}
+                    <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3 h-3 rotate-45 bg-yellow-400 shadow-[0_0_15px_#facc15] z-50"></div>
+                    <div className="absolute -top-[1px] left-1/2 -translate-x-1/2 w-32 h-[2px] bg-gradient-to-r from-transparent via-yellow-400 to-transparent blur-[1px]"></div>
 
-                    <div className="text-center">
-                        <span className="text-yellow-500/60 text-[10px] uppercase tracking-[0.3em] block mb-2">Total Final</span>
-                        <div className="flex items-baseline justify-center gap-2">
-                            <span className="text-5xl font-bold text-white font-serif drop-shadow-lg">
+                    {/* CONTEÚDO */}
+                    <div className="text-center w-full">
+                        <span className="text-yellow-500/40 text-[10px] uppercase tracking-[0.4em] font-bold block mb-1">Resultado Final</span>
+                        
+                        {/* Número Gigante do Total */}
+                        <div className="flex items-center justify-center mb-4 relative">
+                            <span className="text-7xl font-black text-transparent bg-clip-text bg-gradient-to-b from-white via-yellow-100 to-yellow-600 drop-shadow-[0_5px_5px_rgba(0,0,0,0.8)]" style={{ fontFamily: '"Cinzel Decorative", serif' }}>
                                 {result + baseModifier + proficiency}
                             </span>
+                            <div className="absolute inset-0 bg-yellow-500/20 blur-[30px] rounded-full -z-10"></div>
                         </div>
-                        <div className="flex items-center justify-center gap-2 mt-2 text-xs text-gray-500 font-mono border-t border-white/5 pt-2">
-                            <span title="Dado" className="hover:text-white transition-colors">🎲 {result}</span>
-                            <span>+</span>
-                            <span title="Modificador">Mod {baseModifier}</span>
-                            <span>+</span>
-                            <span title="Proficiência">Prof {proficiency}</span>
+
+                        {/* Breakdown Matemático Visual (Ícones) */}
+                        <div className="flex items-center justify-center gap-4 text-xs font-mono w-full">
+                            
+                            {/* DADO */}
+                            <div className="flex flex-col items-center gap-1 group cursor-help transition-transform hover:scale-110">
+                                <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-xl shadow-lg group-hover:border-white/30 transition-colors">
+                                    🎲
+                                </div>
+                                <span className="text-gray-400 font-bold">{result}</span>
+                            </div>
+
+                            <span className="text-gray-600 text-xl font-thin">+</span>
+
+                            {/* MODIFICADOR */}
+                            <div className="flex flex-col items-center gap-1 group cursor-help transition-transform hover:scale-110">
+                                <div className="w-10 h-10 rounded-xl bg-blue-900/20 border border-blue-500/20 flex items-center justify-center text-xl shadow-lg text-blue-300 group-hover:border-blue-500/50 transition-colors">
+                                    💪
+                                </div>
+                                <span className="text-blue-400 font-bold">{baseModifier}</span>
+                            </div>
+
+                            <span className="text-gray-600 text-xl font-thin">+</span>
+
+                            {/* PROFICIÊNCIA */}
+                            <div className="flex flex-col items-center gap-1 group cursor-help transition-transform hover:scale-110">
+                                <div className="w-10 h-10 rounded-xl bg-purple-900/20 border border-purple-500/20 flex items-center justify-center text-xl shadow-lg text-purple-300 group-hover:border-purple-500/50 transition-colors">
+                                    🎓
+                                </div>
+                                <span className="text-purple-400 font-bold">{proficiency}</span>
+                            </div>
                         </div>
                     </div>
 
-                    <div className="flex gap-4 mt-2 w-full">
-                      <button onClick={handleReset} className="flex-1 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs uppercase tracking-widest rounded border border-gray-600">Rolar Novamente</button>
-                      <button onClick={() => onComplete((result || 0) + baseModifier + proficiency, (result || 0) + baseModifier + proficiency >= difficultyClass, result === 20)} className="flex-1 px-4 py-2 bg-gradient-to-b from-yellow-700 to-yellow-900 hover:from-yellow-600 hover:to-yellow-800 text-yellow-100 font-bold text-xs uppercase tracking-widest rounded border border-yellow-500/50 shadow-[0_0_15px_rgba(234,179,8,0.2)]">Aceitar</button>
+                    {/* BOTÕES ESTILIZADOS */}
+                    <div className="flex gap-4 mt-2 w-full pt-4 border-t border-white/5">
+                      <button 
+                        onClick={handleReset} 
+                        className="flex-1 py-3 text-gray-500 hover:text-white text-[10px] uppercase tracking-widest font-bold transition-colors hover:bg-white/5 rounded-lg flex items-center justify-center gap-2 group"
+                      >
+                        <span className="text-lg group-hover:-rotate-180 transition-transform duration-500">↺</span> Rolar Novamente
+                      </button>
+                      
+                      <button 
+                        onClick={() => onComplete((result || 0) + baseModifier + proficiency, (result || 0) + baseModifier + proficiency >= difficultyClass, result === 20)} 
+                        className="flex-[1.5] py-3 bg-gradient-to-r from-yellow-700 via-yellow-600 to-yellow-800 hover:brightness-110 text-white font-bold text-xs uppercase tracking-[0.2em] rounded-lg shadow-[0_0_20px_rgba(234,179,8,0.3)] border border-yellow-400/30 active:scale-95 transition-all"
+                      >
+                        Aceitar
+                      </button>
                     </div>
+
                  </div>
              </div>
         )}

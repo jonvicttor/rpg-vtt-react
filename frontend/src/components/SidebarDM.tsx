@@ -3,6 +3,7 @@ import Soundboard from './Soundboard';
 import Chat, { ChatMessage } from './Chat'; 
 import { Entity, MonsterPreset } from '../App';
 import EditEntityModal from './EditEntityModal';
+import CampaignManager from './CampaignManager'; // <--- NOVO IMPORT
 import { getLevelFromXP, getNextLevelXP } from '../utils/gameRules';
 
 // Importações das Ferramentas
@@ -270,7 +271,8 @@ const CombatVsPanel = ({ attacker, targets, onUpdateHP, onSendMessage }: { attac
 
 const AVAILABLE_MAPS = [{ name: 'Floresta', url: '/maps/floresta.jpg' }, { name: 'Caverna', url: '/maps/caverna.jpg' }, { name: 'Taverna', url: '/maps/taverna.jpg' }, { name: 'Masmorra', url: '/maps/masmorra.jpg' }];
 
-type SidebarTab = 'combat' | 'map' | 'create' | 'audio' | 'tools'; 
+// --- ATUALIZADO: Incluímos 'campaign' no tipo ---
+type SidebarTab = 'combat' | 'map' | 'create' | 'audio' | 'tools' | 'campaign'; 
 type MainTab = 'tools' | 'chat';
 
 const SidebarDM: React.FC<SidebarDMProps> = ({ 
@@ -285,7 +287,7 @@ const SidebarDM: React.FC<SidebarDMProps> = ({
   customMonsters,
   globalBrightness = 1,
   onSetGlobalBrightness,
-  onRequestRoll // RECEBENDO A FUNÇÃO
+  onRequestRoll
 }) => {
   const [editingEntity, setEditingEntity] = useState<Entity | null>(null);
   const [activeTab, setActiveTab] = useState<SidebarTab>('combat');
@@ -294,19 +296,17 @@ const SidebarDM: React.FC<SidebarDMProps> = ({
   const [customMapUrl, setCustomMapUrl] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // --- NOVO ESTADO: CONTROLE DO POP-UP DE CD ---
+  // --- CONTROLE DO POP-UP DE CD ---
   const [pendingSkillRequest, setPendingSkillRequest] = useState<{ skillName: string, mod: number } | null>(null);
-  const [dcInput, setDcInput] = useState<number>(10); // CD Padrão
+  const [dcInput, setDcInput] = useState<number>(10);
 
   const FULL_MONSTER_LIST = [...MONSTER_LIST, ...(customMonsters || [])];
 
   const targetId = targetEntityIds[0];
   const targetEntity = entities.find(e => e.id === targetId);
 
-  // --- FUNÇÃO DE CONFIRMAÇÃO DO MESTRE ---
   const handleConfirmRequest = () => {
       if (pendingSkillRequest && targetEntity) {
-          // Chama a função passada pelo App.tsx
           onRequestRoll(targetEntity.id, pendingSkillRequest.skillName, pendingSkillRequest.mod, dcInput);
           setPendingSkillRequest(null);
           setDcInput(10);
@@ -438,8 +438,10 @@ const SidebarDM: React.FC<SidebarDMProps> = ({
                         <button onClick={() => setActiveTab('combat')} className={`flex-1 py-2 text-center text-lg transition-all ${activeTab === 'combat' ? 'text-white bg-rpgAccent/20 border-b-2 border-rpgAccent' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`} title="Combate">⚔️</button>
                         <button onClick={() => setActiveTab('map')} className={`flex-1 py-2 text-center text-lg transition-all ${activeTab === 'map' ? 'text-white bg-rpgAccent/20 border-b-2 border-rpgAccent' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`} title="Mapa">🗺️</button>
                         
-                        {/* ABA DE FERRAMENTAS */}
                         <button onClick={() => setActiveTab('tools')} className={`flex-1 py-2 text-center text-lg transition-all ${activeTab === 'tools' ? 'text-white bg-rpgAccent/20 border-b-2 border-rpgAccent' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`} title="Forja e Dados">🔨</button>
+                        
+                        {/* --- NOVO BOTÃO DE CAMPANHA --- */}
+                        <button onClick={() => setActiveTab('campaign')} className={`flex-1 py-2 text-center text-lg transition-all ${activeTab === 'campaign' ? 'text-white bg-rpgAccent/20 border-b-2 border-rpgAccent' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`} title="Campanha">📜</button>
                         
                         <button onClick={() => setActiveTab('create')} className={`flex-1 py-2 text-center text-lg transition-all ${activeTab === 'create' ? 'text-white bg-rpgAccent/20 border-b-2 border-rpgAccent' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`} title="Criar Entidades">🐉</button>
                         <button onClick={() => setActiveTab('audio')} className={`flex-1 py-2 text-center text-lg transition-all ${activeTab === 'audio' ? 'text-white bg-rpgAccent/20 border-b-2 border-rpgAccent' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`} title="Áudio">🔊</button>
@@ -447,7 +449,6 @@ const SidebarDM: React.FC<SidebarDMProps> = ({
 
                     <div className="flex-grow overflow-y-auto p-4 custom-scrollbar w-full">
                         
-                        {/* CONTEÚDO DA ABA FERRAMENTAS */}
                         {activeTab === 'tools' && (
                             <div className="animate-in fade-in slide-in-from-right-4 duration-300 space-y-6">
                                 <div className="bg-black/40 p-4 rounded-xl border border-white/5">
@@ -464,7 +465,6 @@ const SidebarDM: React.FC<SidebarDMProps> = ({
                                                 </div>
                                             </div>
                                             
-                                            {/* SkillList em Modo DM: Clicar abre o modal de CD */}
                                             <SkillList 
                                                 attributes={mapEntityStatsToAttributes(targetEntity)}
                                                 proficiencyBonus={2} 
@@ -481,6 +481,11 @@ const SidebarDM: React.FC<SidebarDMProps> = ({
                                 </div>
                                 <ItemCreator />
                             </div>
+                        )}
+
+                        {/* --- NOVA ABA DE CAMPANHA --- */}
+                        {activeTab === 'campaign' && (
+                            <CampaignManager />
                         )}
 
                         {activeTab === 'combat' && (
