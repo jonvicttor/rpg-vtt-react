@@ -49,8 +49,6 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
   const musicRef = useRef<Howl | null>(null);
   const [savedChar, setSavedChar] = useState<any>(null);
 
-  // REMOVIDO: Refs de scroll não utilizados (raceListRef, classListRef)
-
   const [selectedRace, setSelectedRace] = useState<keyof typeof RACES>('HUMANO');
   const [selectedClass, setSelectedClass] = useState<keyof typeof CLASSES>('GUERREIRO');
   const [stats, setStats] = useState({ str: 8, dex: 8, con: 8, int: 8, wis: 8, cha: 8 });
@@ -236,7 +234,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
     </div>
   );
 
-  // --- PASSO 1: TELA INICIAL ---
+  // --- PASSO 1: TELA INICIAL (CORRIGIDA - ÍCONES E TEXTO CENTRALIZADOS) ---
   if (step === 1) return (
     <BackgroundWrapper>
       <div className="flex flex-col items-center gap-16 w-full max-w-6xl">
@@ -252,15 +250,20 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
         </div>
 
         <div className="flex flex-col md:flex-row gap-8 w-full justify-center items-stretch px-8">
+          
+          {/* BOTÃO JOGADOR - CENTRALIZADO */}
           <button onClick={() => { setRole('PLAYER'); if (savedChar) setStep(1.5); else setStep(1.2); }} className="group relative flex-1 h-[280px] overflow-hidden rounded-3xl transition-all duration-500 hover:scale-[1.03] active:scale-95">
              <ArcaneContainer className="h-full hover:shadow-[0_0_50px_rgba(37,99,235,0.3)] hover:border-blue-500/50 transition-all">
                 <div className="absolute inset-0 bg-gradient-to-br from-blue-900/40 via-transparent to-black opacity-60 z-0"></div>
-                <div className="relative z-10 flex flex-col h-full justify-between p-6">
-                    <div className="p-5 rounded-2xl bg-gradient-to-br from-blue-950 to-black border border-blue-500/30 shadow-lg w-fit mb-4 group-hover:border-blue-400 group-hover:from-blue-900 transition-colors">
+                {/* FLEX CENTRALIZADO AQUI */}
+                <div className="relative z-10 flex flex-col h-full items-center justify-center p-6 text-center gap-6">
+                    {/* QUADRADO DO ÍCONE CENTRALIZADO */}
+                    <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-blue-950 to-black border border-blue-500/30 shadow-lg group-hover:border-blue-400 group-hover:from-blue-900 transition-colors flex items-center justify-center">
                         <Sword size={40} className="text-blue-400 group-hover:text-blue-200 transition-colors drop-shadow-md" />
                     </div>
+                    {/* TEXTO CENTRALIZADO */}
                     <div>
-                        <h3 className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-200 to-blue-500 group-hover:from-white group-hover:to-blue-300 transition-all drop-shadow-lg" style={{ fontFamily: 'Cinzel Decorative' }}>SOU JOGADOR</h3>
+                        <h3 className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-200 to-blue-500 group-hover:from-white group-hover:to-blue-300 transition-all drop-shadow-lg leading-tight" style={{ fontFamily: 'Cinzel Decorative' }}>SOU JOGADOR</h3>
                         <p className="text-blue-200/60 text-sm mt-2 font-serif tracking-wider group-hover:text-blue-100">Entrar na aventura com meu herói.</p>
                     </div>
                     <ChevronRight className="absolute bottom-8 right-8 text-blue-500/30 w-8 h-8 group-hover:text-blue-400 group-hover:translate-x-2 transition-all" />
@@ -268,15 +271,19 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
              </ArcaneContainer>
           </button>
 
+          {/* BOTÃO MESTRE - CENTRALIZADO */}
           <button onClick={() => { setRole('DM'); setStep(2); }} className="group relative flex-1 h-[280px] overflow-hidden rounded-3xl transition-all duration-500 hover:scale-[1.03] active:scale-95">
              <ArcaneContainer className="h-full hover:shadow-[0_0_50px_rgba(220,38,38,0.3)] hover:border-red-500/50 transition-all">
                 <div className="absolute inset-0 bg-gradient-to-br from-red-900/40 via-transparent to-black opacity-60 z-0"></div>
-                <div className="relative z-10 flex flex-col h-full justify-between p-6">
-                    <div className="p-5 rounded-2xl bg-gradient-to-br from-red-950 to-black border border-red-500/30 shadow-lg w-fit mb-4 group-hover:border-red-400 group-hover:from-red-900 transition-colors">
+                {/* FLEX CENTRALIZADO AQUI */}
+                <div className="relative z-10 flex flex-col h-full items-center justify-center p-6 text-center gap-6">
+                    {/* QUADRADO DO ÍCONE CENTRALIZADO */}
+                    <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-red-950 to-black border border-red-500/30 shadow-lg group-hover:border-red-400 group-hover:from-red-900 transition-colors flex items-center justify-center">
                         <Crown size={40} className="text-red-400 group-hover:text-red-200 transition-colors drop-shadow-md" />
                     </div>
+                    {/* TEXTO CENTRALIZADO */}
                     <div>
-                        <h3 className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-red-200 to-red-500 group-hover:from-white group-hover:to-red-300 transition-all drop-shadow-lg" style={{ fontFamily: 'Cinzel Decorative' }}>SOU O MESTRE</h3>
+                        <h3 className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-red-200 to-red-500 group-hover:from-white group-hover:to-red-300 transition-all drop-shadow-lg leading-tight" style={{ fontFamily: 'Cinzel Decorative' }}>SOU O MESTRE</h3>
                         <p className="text-red-200/60 text-sm mt-2 font-serif tracking-wider group-hover:text-red-100">Gerenciar o mundo e a história.</p>
                     </div>
                     <ChevronRight className="absolute bottom-8 right-8 text-red-500/30 w-8 h-8 group-hover:text-red-400 group-hover:translate-x-2 transition-all" />
