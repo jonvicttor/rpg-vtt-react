@@ -1,21 +1,17 @@
 import React, { useState, useRef } from 'react';
-import Soundboard from './Soundboard';
+import Soundboard from './Soundboard'; 
 import Chat, { ChatMessage } from './Chat'; 
 import { Entity, MonsterPreset } from '../App';
 import EditEntityModal from './EditEntityModal';
-import CampaignManager from './CampaignManager'; // <--- NOVO IMPORT
+import CampaignManager from './CampaignManager';
 import { getLevelFromXP, getNextLevelXP } from '../utils/gameRules';
-
-// Importações das Ferramentas
 import SkillList from './SkillList';
 import ItemCreator from './ItemCreator';
+import Scratchpad from './Scratchpad'; 
 import { mapEntityStatsToAttributes } from '../utils/attributeMapping';
+import { Eye, EyeOff } from 'lucide-react';
 
-export interface InitiativeItem {
-  id: number;
-  name: string;
-  value: number;
-}
+export interface InitiativeItem { id: number; name: string; value: number; }
 
 const MONSTER_LIST: MonsterPreset[] = [
   { name: 'Lobo', hp: 11, ac: 13, image: '/tokens/lobo.png' },
@@ -25,6 +21,16 @@ const MONSTER_LIST: MonsterPreset[] = [
   { name: 'Bandido', hp: 11, ac: 12, image: '/tokens/bandido.png' },
   { name: 'Zumbi', hp: 22, ac: 8, image: '/tokens/zumbi.png' }
 ];
+
+const AVAILABLE_MAPS = [
+    { name: 'Floresta', url: '/maps/floresta.jpg' }, 
+    { name: 'Caverna', url: '/maps/caverna.jpg' }, 
+    { name: 'Taverna', url: '/maps/taverna.jpg' }, 
+    { name: 'Masmorra', url: '/maps/masmorra.jpg' }
+];
+
+type SidebarTab = 'combat' | 'map' | 'create' | 'audio' | 'tools' | 'campaign'; 
+type MainTab = 'tools' | 'chat';
 
 interface SidebarDMProps {
   entities: Entity[];
@@ -64,94 +70,78 @@ interface SidebarDMProps {
   customMonsters?: MonsterPreset[]; 
   globalBrightness?: number;
   onSetGlobalBrightness?: (val: number) => void;
-  
-  // A FUNÇÃO MÁGICA QUE O APP VAI PROCESSAR
   onRequestRoll: (targetId: number, skillName: string, mod: number, dc: number) => void;
+  onToggleVisibility: (id: number) => void;
+  
+  // PROPS DE ÁUDIO
+  currentTrack: string | null;
+  onPlayMusic: (trackId: string) => void;
+  onStopMusic: () => void;
+  onPlaySFX: (sfxId: string) => void;
+  audioVolume: number;
+  onSetAudioVolume: (val: number) => void;
+
+  // MAPA
+  onResetView: () => void;
+
+  // INVENTÁRIO (NOVO)
+  onGiveItem: (targetId: number, item: any) => void;
 }
 
 const AoEColorPicker = ({ selected, onSelect }: { selected: string, onSelect: (c: string) => void }) => {
-    const colors = [
-        { c: '#ef4444', label: '🔥', name: 'Fogo' }, { c: '#3b82f6', label: '❄️', name: 'Gelo' },
-        { c: '#22c55e', label: '🧪', name: 'Ácido' }, { c: '#a855f7', label: '🔮', name: 'Magia' },
-        { c: '#eab308', label: '⚡', name: 'Raio' }, { c: '#111827', label: '🌑', name: 'Escuridão' },
-    ];
+    const colors = [{ c: '#ef4444', label: '🔥', name: 'Fogo' }, { c: '#3b82f6', label: '❄️', name: 'Gelo' }, { c: '#22c55e', label: '🧪', name: 'Ácido' }, { c: '#a855f7', label: '🔮', name: 'Magia' }, { c: '#eab308', label: '⚡', name: 'Raio' }, { c: '#111827', label: '🌑', name: 'Escuridão' }];
     return (
         <div className="flex gap-1 justify-center bg-black/40 p-1.5 rounded mt-2">
-            {colors.map(opt => (
-                <button key={opt.c} onClick={() => onSelect(opt.c)} className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] transition-all hover:scale-110 border ${selected === opt.c ? 'border-white scale-110 shadow-lg' : 'border-transparent opacity-70 hover:opacity-100'}`} style={{ backgroundColor: opt.c }} title={opt.name}>{opt.label}</button>
-            ))}
+            {colors.map(opt => (<button key={opt.c} onClick={() => onSelect(opt.c)} className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] transition-all hover:scale-110 border ${selected === opt.c ? 'border-white scale-110 shadow-lg' : 'border-transparent opacity-70 hover:opacity-100'}`} style={{ backgroundColor: opt.c }} title={opt.name}>{opt.label}</button>))}
         </div>
     );
 };
 
-const EntityControlRow = ({ entity, onUpdateHP, onDeleteEntity, onClickEdit, onAddToInit, isTarget, isAttacker, onSetTarget, onSetAttacker, onToggleCondition, onAddXP }: any) => {
+const EntityControlRow = ({ entity, onUpdateHP, onDeleteEntity, onClickEdit, onAddToInit, isTarget, isAttacker, onSetTarget, onSetAttacker, onToggleCondition, onAddXP, onToggleVisibility }: any) => {
   const hpPercent = Math.max(0, Math.min(100, (entity.hp / entity.maxHp) * 100));
   const isDead = entity.hp <= 0;
   let barColor = 'bg-green-500';
-  if (hpPercent < 30) barColor = 'bg-red-600';
-  else if (hpPercent < 60) barColor = 'bg-yellow-500';
-
+  if (hpPercent < 30) barColor = 'bg-red-600'; else if (hpPercent < 60) barColor = 'bg-yellow-500';
   const [showXPInput, setShowXPInput] = useState(false);
   const [xpAmount, setXpAmount] = useState('');
-
-  const handleGiveXP = (e: React.FormEvent) => {
-      e.preventDefault();
-      const amount = parseInt(xpAmount);
-      if (amount && onAddXP) {
-          onAddXP(entity.id, amount);
-          setXpAmount('');
-          setShowXPInput(false);
-      }
-  };
+  const handleGiveXP = (e: React.FormEvent) => { e.preventDefault(); const amount = parseInt(xpAmount); if (amount && onAddXP) { onAddXP(entity.id, amount); setXpAmount(''); setShowXPInput(false); } };
 
   return (
     <div className={`relative p-3 rounded border transition-all flex flex-col gap-2 group overflow-hidden cursor-pointer ${isDead ? 'opacity-60 grayscale bg-gray-900 border-gray-800' : ''} ${isTarget && !isDead ? 'bg-red-900/30 border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.3)]' : isAttacker ? 'bg-blue-900/30 border-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.3)]' : 'bg-black/40 border-white/10 hover:bg-black/60'}`} onClick={(e) => onSetTarget(entity.id, e.shiftKey)}>
       {isDead && (<div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-20 z-0"><span className="text-4xl">💀</span></div>)}
       
       <div className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-20 bg-black/90 border border-white/20 rounded p-0.5 shadow-xl">
-        {entity.type === 'player' && (
-            <button onClick={(e) => { e.stopPropagation(); setShowXPInput(!showXPInput); }} className="text-gray-300 hover:text-purple-400 hover:bg-white/10 rounded p-1.5 transition-colors text-sm" title="Dar XP">✨</button>
-        )}
+        {entity.type === 'player' && (<button onClick={(e) => { e.stopPropagation(); setShowXPInput(!showXPInput); }} className="text-gray-300 hover:text-purple-400 hover:bg-white/10 rounded p-1.5 transition-colors text-sm" title="Dar XP">✨</button>)}
         <button onClick={(e) => { e.stopPropagation(); onSetAttacker(entity.id); }} className={`hover:bg-white/10 rounded p-1.5 transition-colors text-sm ${isAttacker ? 'text-blue-400' : 'text-gray-300'}`} title="Definir como Atacante">🎯</button>
         <button onClick={(e) => { e.stopPropagation(); onAddToInit(); }} className="text-gray-300 hover:text-yellow-400 hover:bg-white/10 rounded p-1.5 transition-colors text-sm" title="Iniciativa">⚔️</button>
+        
+        <button onClick={(e) => { e.stopPropagation(); onToggleVisibility(); }} className={`hover:bg-white/10 rounded p-1.5 transition-colors text-sm ${entity.visible === false ? 'text-white/30' : 'text-cyan-400'}`} title={entity.visible === false ? "Revelar" : "Ocultar"}>
+            {entity.visible === false ? <EyeOff size={14} /> : <Eye size={14} />}
+        </button>
+
         <button onClick={(e) => { e.stopPropagation(); onClickEdit(); }} className="text-gray-300 hover:text-blue-400 hover:bg-white/10 rounded p-1.5 transition-colors text-sm" title="Editar">✎</button>
         <button onClick={(e) => { e.stopPropagation(); if (window.confirm(`Deletar ${entity.name}?`)) onDeleteEntity(entity.id); }} className="text-gray-300 hover:text-red-500 hover:bg-white/10 rounded p-1.5 transition-colors text-sm" title="Excluir">✕</button>
       </div>
 
-      {showXPInput && (
-          <div className="absolute inset-0 z-30 bg-black/90 flex items-center justify-center p-2" onClick={(e) => e.stopPropagation()}>
-              <form onSubmit={handleGiveXP} className="flex gap-2 w-full">
-                  <input autoFocus type="number" placeholder="XP" className="w-full bg-gray-800 border border-purple-500 text-white px-2 py-1 rounded text-xs" value={xpAmount} onChange={(e) => setXpAmount(e.target.value)} />
-                  <button type="submit" className="bg-purple-600 text-white px-3 py-1 rounded text-xs font-bold">OK</button>
-                  <button type="button" onClick={() => setShowXPInput(false)} className="text-gray-400 hover:text-white text-xs">X</button>
-              </form>
-          </div>
-      )}
+      {showXPInput && (<div className="absolute inset-0 z-30 bg-black/90 flex items-center justify-center p-2" onClick={(e) => e.stopPropagation()}><form onSubmit={handleGiveXP} className="flex gap-2 w-full"><input autoFocus type="number" placeholder="XP" className="w-full bg-gray-800 border border-purple-500 text-white px-2 py-1 rounded text-xs" value={xpAmount} onChange={(e) => setXpAmount(e.target.value)} /><button type="submit" className="bg-purple-600 text-white px-3 py-1 rounded text-xs font-bold">OK</button><button type="button" onClick={() => setShowXPInput(false)} className="text-gray-400 hover:text-white text-xs">X</button></form></div>)}
 
       <div className="flex items-center justify-between pr-2 z-10 relative">
         <div className="flex items-center gap-3">
           <div className="relative w-10 h-10 flex-shrink-0">
-            {entity.image ? (<img src={entity.image} alt={entity.name} className="w-full h-full rounded-full object-cover border border-white/20 shadow-sm"/>) : (<div className="w-full h-full rounded-full" style={{ backgroundColor: entity.color }}></div>)}
-            {entity.type === 'player' && (
-                <div className="absolute -bottom-1 -right-1 bg-purple-900 border border-purple-500 text-white text-[9px] font-bold px-1 rounded-full shadow-md">
-                    Nv.{getLevelFromXP(entity.xp || 0)}
-                </div>
-            )}
+            {entity.image ? (<img src={entity.image} alt={entity.name} className={`w-full h-full rounded-full object-cover border border-white/20 shadow-sm ${entity.visible === false ? 'opacity-50 grayscale' : ''}`}/>) : (<div className="w-full h-full rounded-full" style={{ backgroundColor: entity.color }}></div>)}
+            {entity.type === 'player' && (<div className="absolute -bottom-1 -right-1 bg-purple-900 border border-purple-500 text-white text-[9px] font-bold px-1 rounded-full shadow-md">Nv.{getLevelFromXP(entity.xp || 0)}</div>)}
           </div>
           <div className="overflow-hidden">
-              <span className={`text-gray-200 font-bold text-sm truncate block ${isDead ? 'line-through text-gray-500' : ''}`}>{entity.name}</span>
+              <span className={`text-gray-200 font-bold text-sm truncate block ${isDead ? 'line-through text-gray-500' : ''} ${entity.visible === false ? 'opacity-50 italic' : ''}`}>
+                  {entity.name} {entity.visible === false && '(Oculto)'}
+              </span>
               <span className="text-[10px] text-gray-500 uppercase">{entity.classType || 'NPC'}</span>
           </div>
         </div>
         <div className="text-right"><span className={`text-xs font-bold font-mono ${isDead ? 'text-gray-500' : (entity.hp < entity.maxHp / 2 ? 'text-red-500' : 'text-green-400')}`}>{entity.hp}/{entity.maxHp}</span></div>
       </div>
       
-      {entity.type === 'player' && (
-          <div className="w-full h-1 bg-gray-800 rounded-full mt-1 relative overflow-hidden">
-              <div className="h-full bg-purple-500" style={{ width: `${Math.min(100, ((entity.xp || 0) / getNextLevelXP(getLevelFromXP(entity.xp || 0))) * 100)}%` }}></div>
-          </div>
-      )}
-      
+      {entity.type === 'player' && (<div className="w-full h-1 bg-gray-800 rounded-full mt-1 relative overflow-hidden"><div className="h-full bg-purple-500" style={{ width: `${Math.min(100, ((entity.xp || 0) / getNextLevelXP(getLevelFromXP(entity.xp || 0))) * 100)}%` }}></div></div>)}
       <div className="w-full h-1.5 bg-gray-900 rounded-full overflow-hidden border border-white/5 mt-1 z-10 relative"><div className={`h-full ${barColor} transition-all duration-500 ease-out`} style={{ width: `${hpPercent}%` }}></div></div>
     </div>
   );
@@ -269,12 +259,6 @@ const CombatVsPanel = ({ attacker, targets, onUpdateHP, onSendMessage }: { attac
     );
 };
 
-const AVAILABLE_MAPS = [{ name: 'Floresta', url: '/maps/floresta.jpg' }, { name: 'Caverna', url: '/maps/caverna.jpg' }, { name: 'Taverna', url: '/maps/taverna.jpg' }, { name: 'Masmorra', url: '/maps/masmorra.jpg' }];
-
-// --- ATUALIZADO: Incluímos 'campaign' no tipo ---
-type SidebarTab = 'combat' | 'map' | 'create' | 'audio' | 'tools' | 'campaign'; 
-type MainTab = 'tools' | 'chat';
-
 const SidebarDM: React.FC<SidebarDMProps> = ({ 
   entities, onUpdateHP, onAddEntity, onDeleteEntity, onEditEntity,
   isFogMode, onToggleFogMode, onResetFog, onRevealAll, fogTool, onSetFogTool, onSyncFog, onSaveGame, onChangeMap,
@@ -282,12 +266,9 @@ const SidebarDM: React.FC<SidebarDMProps> = ({
   targetEntityIds, attackerId, onSetTarget, onToggleCondition,
   activeAoE, onSetAoE, chatMessages, onSendMessage,
   onSetAttacker, aoeColor, onSetAoEColor,
-  onOpenCreator,
-  onAddXP,
-  customMonsters,
-  globalBrightness = 1,
-  onSetGlobalBrightness,
-  onRequestRoll
+  onOpenCreator, onAddXP, customMonsters, globalBrightness = 1, onSetGlobalBrightness, onRequestRoll, onToggleVisibility,
+  currentTrack, onPlayMusic, onStopMusic, onPlaySFX, audioVolume, onSetAudioVolume,
+  onResetView, onGiveItem
 }) => {
   const [editingEntity, setEditingEntity] = useState<Entity | null>(null);
   const [activeTab, setActiveTab] = useState<SidebarTab>('combat');
@@ -295,70 +276,25 @@ const SidebarDM: React.FC<SidebarDMProps> = ({
   const [showMonsterSelector, setShowMonsterSelector] = useState(false);
   const [customMapUrl, setCustomMapUrl] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // --- CONTROLE DO POP-UP DE CD ---
   const [pendingSkillRequest, setPendingSkillRequest] = useState<{ skillName: string, mod: number } | null>(null);
   const [dcInput, setDcInput] = useState<number>(10);
-
   const FULL_MONSTER_LIST = [...MONSTER_LIST, ...(customMonsters || [])];
-
   const targetId = targetEntityIds[0];
   const targetEntity = entities.find(e => e.id === targetId);
-
-  const handleConfirmRequest = () => {
-      if (pendingSkillRequest && targetEntity) {
-          onRequestRoll(targetEntity.id, pendingSkillRequest.skillName, pendingSkillRequest.mod, dcInput);
-          setPendingSkillRequest(null);
-          setDcInput(10);
-      }
-  };
-
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (event) => { if (event.target?.result) onChangeMap(event.target.result as string); };
-      reader.readAsDataURL(file);
-    }
-  };
-
+  const handleConfirmRequest = () => { if (pendingSkillRequest && targetEntity) { onRequestRoll(targetEntity.id, pendingSkillRequest.skillName, pendingSkillRequest.mod, dcInput); setPendingSkillRequest(null); setDcInput(10); } };
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => { const file = e.target.files?.[0]; if (file) { const reader = new FileReader(); reader.onload = (event) => { if (event.target?.result) onChangeMap(event.target.result as string); }; reader.readAsDataURL(file); } };
   const handleDragStart = (e: React.DragEvent, type: 'enemy' | 'player') => { e.dataTransfer.setData("entityType", type); };
-  
-  const handleSelectPreset = (monster: MonsterPreset) => {
-    const count = entities.filter(e => e.name.startsWith(monster.name)).length;
-    const finalName = count > 0 ? `${monster.name} ${count + 1}` : monster.name;
-    onAddEntity('enemy', finalName, monster);
-    setShowMonsterSelector(false);
-  };
-
+  const handleSelectPreset = (monster: MonsterPreset) => { const count = entities.filter(e => e.name.startsWith(monster.name)).length; const finalName = count > 0 ? `${monster.name} ${count + 1}` : monster.name; onAddEntity('enemy', finalName, monster); setShowMonsterSelector(false); };
   const handleLoadCustomMap = () => { if (customMapUrl.trim()) { onChangeMap(customMapUrl); setCustomMapUrl(''); } };
-
   const attacker = entities.find(e => e.id === attackerId) || null;
   const targets = entities.filter(e => targetEntityIds.includes(e.id));
   const toggleConditionForAll = (cond: string) => { targets.forEach(t => onToggleCondition(t.id, cond)); };
-
-  const rollBulkInitiative = (type: 'npc' | 'selected') => {
-      const targetsToRoll = type === 'npc' ? entities.filter(e => e.type === 'enemy') : entities.filter(e => targetEntityIds.includes(e.id));
-      if(targetsToRoll.length === 0) return;
-      targetsToRoll.forEach(ent => { if (!initiativeList.find(i => i.id === ent.id)) onAddToInitiative(ent); });
-  };
-
-  const sidebarStyle = {
-    backgroundColor: '#1a1510', 
-    backgroundImage: `url('/assets/bg-couro-sidebar.png')`, 
-    backgroundSize: 'cover', 
-    backgroundRepeat: 'no-repeat',
-    boxShadow: 'inset 0 0 60px rgba(0,0,0,0.9)', 
-    width: '420px',      
-    minWidth: '420px',   
-    maxWidth: '420px',   
-    flex: '0 0 420px',   
-  };
+  const rollBulkInitiative = (type: 'npc' | 'selected') => { const targetsToRoll = type === 'npc' ? entities.filter(e => e.type === 'enemy') : entities.filter(e => targetEntityIds.includes(e.id)); if(targetsToRoll.length === 0) return; targetsToRoll.forEach(ent => { if (!initiativeList.find(i => i.id === ent.id)) onAddToInitiative(ent); }); };
+  const sidebarStyle = { backgroundColor: '#1a1510', backgroundImage: `url('/assets/bg-couro-sidebar.png')`, backgroundSize: 'cover', backgroundRepeat: 'no-repeat', boxShadow: 'inset 0 0 60px rgba(0,0,0,0.9)', width: '420px', minWidth: '420px', maxWidth: '420px', flex: '0 0 420px' };
 
   return (
     <>
       {editingEntity && (<EditEntityModal entity={editingEntity} onSave={onEditEntity} onClose={() => setEditingEntity(null)} />)}
-      
       {showMonsterSelector && (
         <div className="fixed inset-0 z-[350] flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={() => setShowMonsterSelector(false)}>
           <div className="bg-gray-900 border border-red-900/50 p-6 rounded-lg shadow-2xl w-[450px] max-h-[80vh] overflow-y-auto custom-scrollbar" onClick={(e) => e.stopPropagation()}>
@@ -366,9 +302,7 @@ const SidebarDM: React.FC<SidebarDMProps> = ({
             <div className="grid grid-cols-2 gap-3 mb-6">
               {FULL_MONSTER_LIST.map((monster, idx) => (
                 <button key={`${monster.name}-${idx}`} onClick={() => handleSelectPreset(monster)} className="flex flex-col items-center bg-black/40 hover:bg-red-900/20 border border-white/10 hover:border-red-500/50 p-3 rounded transition-all group">
-                  <div className="w-12 h-12 rounded-full overflow-hidden mb-2 border border-white/20 group-hover:border-red-500">
-                    <img src={monster.image} alt={monster.name} className="w-full h-full object-cover" />
-                  </div>
+                  <div className="w-12 h-12 rounded-full overflow-hidden mb-2 border border-white/20 group-hover:border-red-500"><img src={monster.image} alt={monster.name} className="w-full h-full object-cover" /></div>
                   <span className="text-sm font-bold text-gray-300 group-hover:text-white truncate w-full text-center">{monster.name}</span>
                   <div className="flex gap-2 text-[10px] text-gray-500 font-mono mt-1"><span>❤️ {monster.hp}</span><span>🛡️ {monster.ac}</span></div>
                 </button>
@@ -379,46 +313,30 @@ const SidebarDM: React.FC<SidebarDMProps> = ({
           </div>
         </div>
       )}
-
-      {/* --- MODAL PARA DEFINIR DIFICULDADE (CD) --- */}
       {pendingSkillRequest && targetEntity && (
           <div className="fixed inset-0 z-[400] flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={() => setPendingSkillRequest(null)}>
               <div className="bg-[#15151a] border border-purple-500/50 p-6 rounded-lg shadow-2xl w-80 animate-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
                   <h3 className="text-purple-400 font-bold text-center uppercase tracking-widest mb-1">Solicitar Teste</h3>
                   <p className="text-white text-center font-serif text-xl mb-4">{pendingSkillRequest.skillName}</p>
-                  
                   <div className="bg-black/40 p-3 rounded mb-4 text-center">
                       <p className="text-xs text-gray-400 mb-1">Alvo</p>
                       <p className="text-white font-bold">{targetEntity.name}</p>
                   </div>
-
                   <div className="mb-6 text-center">
                       <label className="block text-xs text-yellow-500 font-bold mb-2 uppercase">Classe de Dificuldade (CD)</label>
                       <div className="flex items-center justify-center gap-4">
                           <button onClick={() => setDcInput(Math.max(5, dcInput - 5))} className="w-8 h-8 rounded bg-gray-800 text-white hover:bg-gray-700">-5</button>
-                          <input 
-                              type="number" 
-                              value={dcInput} 
-                              onChange={(e) => setDcInput(parseInt(e.target.value) || 10)}
-                              className="w-16 bg-black border border-yellow-600/50 text-center text-2xl font-bold text-yellow-500 rounded p-1"
-                          />
+                          <input type="number" value={dcInput} onChange={(e) => setDcInput(parseInt(e.target.value) || 10)} className="w-16 bg-black border border-yellow-600/50 text-center text-2xl font-bold text-yellow-500 rounded p-1"/>
                           <button onClick={() => setDcInput(dcInput + 5)} className="w-8 h-8 rounded bg-gray-800 text-white hover:bg-gray-700">+5</button>
                       </div>
                   </div>
-
-                  <button 
-                      onClick={handleConfirmRequest}
-                      className="w-full py-3 bg-gradient-to-r from-purple-700 to-indigo-800 text-white font-bold uppercase tracking-widest rounded shadow-lg hover:brightness-110 transition-all"
-                  >
-                      Exigir Rolagem
-                  </button>
+                  <button onClick={handleConfirmRequest} className="w-full py-3 bg-gradient-to-r from-purple-700 to-indigo-800 text-white font-bold uppercase tracking-widest rounded shadow-lg hover:brightness-110 transition-all">Exigir Rolagem</button>
               </div>
           </div>
       )}
 
       <div className="flex flex-col h-full border-l-8 border-[#2a2018] relative" style={sidebarStyle}>
         <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-black/20 via-transparent to-black/40 z-0" />
-
         <div className="relative z-10 flex flex-col h-full w-full">
             <div className="flex border-b border-white/10 bg-black/40 flex-shrink-0">
                 <button onClick={() => setMainTab('tools')} className={`flex-1 py-3 text-center text-sm font-bold uppercase tracking-wider transition-all ${mainTab === 'tools' ? 'text-white bg-rpgAccent/20 border-b-2 border-rpgAccent' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`}>🛠️ Ferramentas</button>
@@ -437,18 +355,13 @@ const SidebarDM: React.FC<SidebarDMProps> = ({
                     <div className="flex border-b border-white/10 bg-black/40 flex-shrink-0">
                         <button onClick={() => setActiveTab('combat')} className={`flex-1 py-2 text-center text-lg transition-all ${activeTab === 'combat' ? 'text-white bg-rpgAccent/20 border-b-2 border-rpgAccent' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`} title="Combate">⚔️</button>
                         <button onClick={() => setActiveTab('map')} className={`flex-1 py-2 text-center text-lg transition-all ${activeTab === 'map' ? 'text-white bg-rpgAccent/20 border-b-2 border-rpgAccent' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`} title="Mapa">🗺️</button>
-                        
                         <button onClick={() => setActiveTab('tools')} className={`flex-1 py-2 text-center text-lg transition-all ${activeTab === 'tools' ? 'text-white bg-rpgAccent/20 border-b-2 border-rpgAccent' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`} title="Forja e Dados">🔨</button>
-                        
-                        {/* --- NOVO BOTÃO DE CAMPANHA --- */}
                         <button onClick={() => setActiveTab('campaign')} className={`flex-1 py-2 text-center text-lg transition-all ${activeTab === 'campaign' ? 'text-white bg-rpgAccent/20 border-b-2 border-rpgAccent' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`} title="Campanha">📜</button>
-                        
                         <button onClick={() => setActiveTab('create')} className={`flex-1 py-2 text-center text-lg transition-all ${activeTab === 'create' ? 'text-white bg-rpgAccent/20 border-b-2 border-rpgAccent' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`} title="Criar Entidades">🐉</button>
                         <button onClick={() => setActiveTab('audio')} className={`flex-1 py-2 text-center text-lg transition-all ${activeTab === 'audio' ? 'text-white bg-rpgAccent/20 border-b-2 border-rpgAccent' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`} title="Áudio">🔊</button>
                     </div>
 
                     <div className="flex-grow overflow-y-auto p-4 custom-scrollbar w-full">
-                        
                         {activeTab === 'tools' && (
                             <div className="animate-in fade-in slide-in-from-right-4 duration-300 space-y-6">
                                 <div className="bg-black/40 p-4 rounded-xl border border-white/5">
@@ -456,38 +369,23 @@ const SidebarDM: React.FC<SidebarDMProps> = ({
                                     {targetEntity ? (
                                         <>
                                             <div className="mb-4 flex items-center gap-3 bg-purple-900/20 p-2 rounded">
-                                                <div className="w-8 h-8 rounded-full overflow-hidden bg-gray-700">
-                                                    {targetEntity.image && <img src={targetEntity.image} className="w-full h-full object-cover" alt="" />}
-                                                </div>
-                                                <div>
-                                                    <p className="text-sm font-bold text-white">{targetEntity.name}</p>
-                                                    <p className="text-[10px] text-gray-400">Solicitando Teste</p>
-                                                </div>
+                                                <div className="w-8 h-8 rounded-full overflow-hidden bg-gray-700">{targetEntity.image && <img src={targetEntity.image} className="w-full h-full object-cover" alt="" />}</div>
+                                                <div><p className="text-sm font-bold text-white">{targetEntity.name}</p><p className="text-[10px] text-gray-400">Solicitando Teste</p></div>
                                             </div>
-                                            
-                                            <SkillList 
-                                                attributes={mapEntityStatsToAttributes(targetEntity)}
-                                                proficiencyBonus={2} 
-                                                profs={[]}
-                                                isDmMode={true}
-                                                onRoll={(skillName, mod) => setPendingSkillRequest({ skillName, mod })}
-                                            />
+                                            <SkillList attributes={mapEntityStatsToAttributes(targetEntity)} proficiencyBonus={2} profs={[]} isDmMode={true} onRoll={(skillName, mod) => setPendingSkillRequest({ skillName, mod })}/>
                                         </>
                                     ) : (
-                                        <p className="text-gray-500 text-sm italic text-center py-4 bg-white/5 rounded border border-dashed border-white/10">
-                                            Selecione um token no mapa para rolar perícias.
-                                        </p>
+                                        <p className="text-gray-500 text-sm italic text-center py-4 bg-white/5 rounded border border-dashed border-white/10">Selecione um token no mapa para rolar perícias.</p>
                                     )}
                                 </div>
-                                <ItemCreator />
+                                <ItemCreator 
+                                    onCreateItem={(item) => targetEntity && onGiveItem(targetEntity.id, item)} 
+                                    targetName={targetEntity?.name}
+                                />
+                                <Scratchpad />
                             </div>
                         )}
-
-                        {/* --- NOVA ABA DE CAMPANHA --- */}
-                        {activeTab === 'campaign' && (
-                            <CampaignManager />
-                        )}
-
+                        {activeTab === 'campaign' && (<CampaignManager />)}
                         {activeTab === 'combat' && (
                             <div className="animate-in fade-in slide-in-from-right-4 duration-300">
                                 <CombatVsPanel attacker={attacker} targets={targets} onUpdateHP={onUpdateHP} onSendMessage={onSendMessage} />
@@ -510,11 +408,11 @@ const SidebarDM: React.FC<SidebarDMProps> = ({
                                 </section>
                                 <section className="mb-8">
                                     <h3 className="text-rpgText font-mono text-[10px] uppercase mb-3 opacity-50 tracking-widest">Entidades no Mapa</h3>
-                                    <div className="space-y-2">{entities.map((entity) => (<EntityControlRow key={entity.id} entity={entity} onUpdateHP={onUpdateHP} onDeleteEntity={onDeleteEntity} onClickEdit={() => setEditingEntity(entity)} onAddToInit={() => onAddToInitiative(entity)} isTarget={targetEntityIds.includes(entity.id)} isAttacker={attackerId === entity.id} onSetTarget={onSetTarget} onSetAttacker={onSetAttacker} onToggleCondition={onToggleCondition} onAddXP={onAddXP}/>))}</div>
+                                    <div className="space-y-2">{entities.map((entity) => (<EntityControlRow key={entity.id} entity={entity} onUpdateHP={onUpdateHP} onDeleteEntity={onDeleteEntity} onClickEdit={() => setEditingEntity(entity)} onAddToInit={() => onAddToInitiative(entity)} isTarget={targetEntityIds.includes(entity.id)} isAttacker={attackerId === entity.id} onSetTarget={onSetTarget} onSetAttacker={onSetAttacker} onToggleCondition={onToggleCondition} onAddXP={onAddXP} onToggleVisibility={() => onToggleVisibility(entity.id)} />))}</div>
                                 </section>
                             </div>
                         )}
-
+                        {/* ... MAP ... */}
                         {activeTab === 'map' && (
                             <div className="animate-in fade-in slide-in-from-right-4 duration-300">
                                 <section className="mb-6 border-b border-white/5 pb-4">
@@ -526,28 +424,17 @@ const SidebarDM: React.FC<SidebarDMProps> = ({
                                     <div className="mt-2 flex items-center justify-center"><span className="text-[9px] text-gray-500 uppercase mr-2">OU</span><div className="h-px bg-white/10 flex-grow"></div></div>
                                     <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept="image/*" />
                                     <button onClick={() => fileInputRef.current?.click()} className="w-full mt-2 bg-purple-900/40 hover:bg-purple-600 border border-purple-500/50 text-white font-bold py-2 rounded uppercase text-xs transition-all flex items-center justify-center gap-2">📂 Abrir Arquivo Local</button>
-                                    <p className="text-[9px] text-gray-500 mt-2 italic">Recomendado: 1920x1080 (Pequeno) ou 2800x2800 (Médio).</p>
                                 </section>
-
                                 <section className="mb-6 border-b border-white/5 pb-4">
                                     <h3 className="text-rpgText font-mono text-[10px] uppercase mb-2 opacity-50 tracking-widest">Ambiente & Luz</h3>
                                     <div className="bg-black/40 p-2 rounded border border-white/10">
                                             <div className="flex justify-between items-center mb-1">
-                                                <span className="text-xs font-bold text-yellow-500">
-                                                    {globalBrightness >= 1 ? '☀️ Dia' : globalBrightness <= 0.2 ? '🌑 Noite' : '🌅 Crepúsculo'}
-                                                </span>
+                                                <span className="text-xs font-bold text-yellow-500">{globalBrightness >= 1 ? '☀️ Dia' : globalBrightness <= 0.2 ? '🌑 Noite' : '🌅 Crepúsculo'}</span>
                                                 <span className="text-[10px] text-gray-500">{Math.round(globalBrightness * 100)}%</span>
                                             </div>
-                                            <input 
-                                                type="range" 
-                                                min="0" max="1" step="0.05"
-                                                value={globalBrightness}
-                                                onChange={(e) => onSetGlobalBrightness && onSetGlobalBrightness(parseFloat(e.target.value))}
-                                                className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-yellow-500"
-                                            />
+                                            <input type="range" min="0" max="1" step="0.05" value={globalBrightness} onChange={(e) => onSetGlobalBrightness && onSetGlobalBrightness(parseFloat(e.target.value))} className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-yellow-500"/>
                                     </div>
                                 </section>
-
                                 <section className="mb-6 border-b border-white/5 pb-4">
                                     <h3 className="text-rpgText font-mono text-[10px] uppercase mb-2 opacity-50 tracking-widest">Mapas Padrão</h3>
                                     <div className="grid grid-cols-2 gap-2">{AVAILABLE_MAPS.map(map => (<button key={map.url} onClick={() => onChangeMap(map.url)} className="bg-gray-800 hover:bg-gray-700 border border-gray-600 text-gray-300 text-[10px] font-bold py-2 rounded transition-all active:scale-95">{map.name}</button>))}</div>
@@ -571,10 +458,15 @@ const SidebarDM: React.FC<SidebarDMProps> = ({
                                             <button onClick={onSyncFog} className="w-full py-1 mt-2 bg-purple-900/30 hover:bg-purple-600/50 border border-purple-500/30 text-[9px] text-purple-200 uppercase font-bold rounded transition-all">📡 Sincronizar Jogadores</button>
                                     </div>
                                 </section>
-                                <div className="px-2"><button onClick={onSaveGame} className="w-full py-2 bg-green-900/40 hover:bg-green-600/60 border border-green-500/30 text-green-200 text-xs font-bold uppercase rounded transition-all shadow-lg">💾 Salvar Estado do Jogo</button></div>
+                                <div className="px-2">
+                                    <button onClick={onSaveGame} className="w-full py-2 bg-green-900/40 hover:bg-green-600/60 border border-green-500/30 text-green-200 text-xs font-bold uppercase rounded transition-all shadow-lg mb-2">💾 Salvar Estado do Jogo</button>
+                                    
+                                    {/* --- BOTÃO DE RECENTRALIZAR --- */}
+                                    <button onClick={onResetView} className="w-full py-2 bg-blue-900/40 hover:bg-blue-600/60 border border-blue-500/30 text-blue-200 text-xs font-bold uppercase rounded transition-all shadow-lg">Recentralizar Câmera 🎯</button>
+                                </div>
                             </div>
                         )}
-
+                        {/* ... CREATE ... */}
                         {activeTab === 'create' && (
                             <div className="animate-in fade-in slide-in-from-right-4 duration-300">
                                 <h3 className="text-rpgText font-mono text-[10px] uppercase mb-4 opacity-50 tracking-widest text-center">Adicionar Entidades</h3>
@@ -583,9 +475,18 @@ const SidebarDM: React.FC<SidebarDMProps> = ({
                                 <p className="text-gray-500 text-xs text-center mt-6 italic px-4">Dica: Você também pode arrastar esses botões diretamente para o mapa!</p>
                             </div>
                         )}
-
+                        {/* --- NOVA ABA DE AUDIO INTEGRADA --- */}
                         {activeTab === 'audio' && (
-                            <div className="animate-in fade-in slide-in-from-right-4 duration-300"><Soundboard /></div>
+                            <div className="animate-in fade-in slide-in-from-right-4 duration-300 h-full">
+                                <Soundboard 
+                                    currentTrack={currentTrack}
+                                    onPlayMusic={onPlayMusic}
+                                    onStopMusic={onStopMusic}
+                                    onPlaySFX={onPlaySFX}
+                                    globalVolume={audioVolume}
+                                    onVolumeChange={onSetAudioVolume}
+                                />
+                            </div>
                         )}
                     </div>
                 </div>

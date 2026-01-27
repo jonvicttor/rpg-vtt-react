@@ -3,40 +3,18 @@ import Chat, { ChatMessage } from './Chat';
 import { Entity, Item } from '../App';
 import LevelUpModal from './LevelUpModal';
 import { getLevelFromXP, getProficiencyBonus, calculateHPGain, XP_TABLE } from '../utils/gameRules';
-import ItemCard from './ItemCard';
 import SkillList from './SkillList';
+import Inventory from './Inventory';
 import { mapEntityStatsToAttributes } from '../utils/attributeMapping';
 import { 
-  Plus, Sword, Shield, Zap, Skull, Backpack, Dna, Flame, Heart
-} from 'lucide-react';
-
-// --- CONFIGURAÇÃO ---
-const INVENTORY_SLOTS = 15; 
+  Shield, Zap, Skull, Backpack, Dna, Flame, Heart, Scroll 
+} from 'lucide-react'; // <--- Sword removido daqui
 
 // --- TIPAGEM ---
 export interface InitiativeItem {
-    id: number;
-    name: string;
-    value: number;
-}
-
-interface ExtendedItem extends Item {
-    isEquipped?: boolean;
-    rarity?: 'common' | 'rare' | 'epic' | 'legendary';
-    stats?: {
-        damage?: string;
-        ac?: number; 
-        properties?: string[];
-    };
-}
-
-interface PlayerEntity extends Entity {
-    race?: string;
-    classType?: string;
-    stats?: any;
-    inventory?: ExtendedItem[];
-    xp?: number;
-    level?: number;
+  id: number;
+  name: string;
+  value: number;
 }
 
 // --- DADOS ---
@@ -82,13 +60,10 @@ const SidebarPlayer: React.FC<SidebarPlayerProps> = ({
   const [spellSlotsUsed, setSpellSlotsUsed] = useState<number[]>([0,0,0,0,0,0,0,0,0]); 
   const [deathSaves, setDeathSaves] = useState({ successes: 0, failures: 0 });
 
-  const [newItem, setNewItem] = useState<Partial<ExtendedItem>>({ type: 'misc', quantity: 1, rarity: 'common' });
-  const [showItemForm, setShowItemForm] = useState(false);
-  
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  const myCharacter = entities.find(e => e.type === 'player' && e.name === myCharacterName) as PlayerEntity | undefined; 
+  // Encontra o personagem do jogador
+  const myCharacter = entities.find(e => e.type === 'player' && e.name === myCharacterName); 
   
   const currentXP = myCharacter?.xp || 0;
   const calculatedLevel = getLevelFromXP(currentXP);
@@ -96,8 +71,7 @@ const SidebarPlayer: React.FC<SidebarPlayerProps> = ({
   const proficiencyBonus = getProficiencyBonus(savedLevel);
   const attributes = myCharacter ? mapEntityStatsToAttributes(myCharacter) : { FOR: 10, DES: 10, CON: 10, INT: 10, SAB: 10, CAR: 10 };
   
-  const inventory = (myCharacter?.inventory || []) as ExtendedItem[];
-  const backpackItems = inventory.filter(i => !i.isEquipped);
+  const inventory = (myCharacter?.inventory || []);
 
   const dexMod = Math.floor((attributes.DES - 10) / 2);
   const equippedArmor = inventory.find(i => i.isEquipped && i.type === 'armor');
@@ -131,15 +105,29 @@ const SidebarPlayer: React.FC<SidebarPlayerProps> = ({
     onSendMessage(`⚡ **${myCharacter.name}** usou **${abilityName}**!\n> *${desc}*`);
   };
 
-  const handleEquipItem = (item: ExtendedItem) => {
+  const handleEquipItem = (item: Item) => {
       if (!myCharacter || !onUpdateCharacter) return;
       let newInv = [...inventory];
+      
+      // Se for poção, "equipar" significa usar/beber
+      if (item.type === 'potion') {
+          onSendMessage(`🧪 **${myCharacter.name}** usou **${item.name}**.`);
+          if (item.quantity > 1) {
+              newInv = newInv.map(i => i.id === item.id ? { ...i, quantity: i.quantity - 1 } : i);
+          } else {
+              newInv = newInv.filter(i => i.id !== item.id);
+          }
+          onUpdateCharacter(myCharacter.id, { inventory: newInv });
+          return;
+      }
+
       if (item.isEquipped) {
           newInv = newInv.map(i => i.id === item.id ? { ...i, isEquipped: false } : i);
           onUpdateCharacter(myCharacter.id, { inventory: newInv });
           onSendMessage(`🛡️ **${myCharacter.name}** desequipou **${item.name}**.`);
           return;
       }
+
       if (item.type === 'armor') {
           newInv = newInv.map(i => i.type === 'armor' ? { ...i, isEquipped: false } : i);
       } else if (item.type === 'weapon') { 
@@ -148,9 +136,19 @@ const SidebarPlayer: React.FC<SidebarPlayerProps> = ({
               newInv = newInv.map(i => i.id === equippedWeapons[0].id ? { ...i, isEquipped: false } : i);
           }
       }
+      
       newInv = newInv.map(i => i.id === item.id ? { ...i, isEquipped: true } : i);
       onUpdateCharacter(myCharacter.id, { inventory: newInv });
-      onSendMessage(`🛡️ **${myCharacter.name}** equipou **${item.name}**.`);
+      onSendMessage(`⚔️ **${myCharacter.name}** equipou **${item.name}**.`);
+  };
+
+  const handleDropItem = (item: Item) => {
+      if (!myCharacter || !onUpdateCharacter) return;
+      if (window.confirm(`Tem certeza que deseja jogar fora ${item.name}?`)) {
+          const newInv = inventory.filter(i => i.id !== item.id);
+          onUpdateCharacter(myCharacter.id, { inventory: newInv });
+          onSendMessage(`🗑️ **${myCharacter.name}** descartou **${item.name}**.`);
+      }
   };
 
   const handleCastSpell = (spellName: string, level: number) => {
@@ -189,62 +187,6 @@ const SidebarPlayer: React.FC<SidebarPlayerProps> = ({
         onUpdateCharacter(myCharacter.id, { hp: myCharacter.maxHp });
         onSendMessage(`💤 **${myCharacter.name}** realizou um Descanso Longo. Vida, magias e recursos restaurados.`);
     }
-  };
-
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (event) => { setNewItem(prev => ({ ...prev, image: event.target?.result as string })); };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const handleAddItem = () => {
-      if (!myCharacter || !onUpdateCharacter || !newItem.name) return;
-      const item: ExtendedItem = {
-          id: Date.now().toString(),
-          name: newItem.name, description: newItem.description || '',
-          image: newItem.image || '', type: (newItem.type as any) || 'misc', quantity: newItem.quantity || 1,
-          weight: newItem.weight, value: newItem.value, stats: newItem.stats, 
-          rarity: newItem.rarity || 'common', isEquipped: false
-      };
-      const currentInv = myCharacter.inventory || [];
-      onUpdateCharacter(myCharacter.id, { inventory: [...currentInv, item] });
-      setNewItem({ type: 'misc', quantity: 1, stats: { damage: '' }, value: '', rarity: 'common' });
-      setShowItemForm(false);
-  };
-
-  const handleUpdateItem = (itemId: string, updates: Partial<Item>) => {
-      if (!myCharacter || !onUpdateCharacter) return;
-      onUpdateCharacter(myCharacter.id, { inventory: inventory.map(i => i.id === itemId ? { ...i, ...updates } : i) });
-  };
-
-  const handleDeleteItem = (itemId: string) => {
-      if (!myCharacter || !onUpdateCharacter) return;
-      onUpdateCharacter(myCharacter.id, { inventory: inventory.filter(i => i.id !== itemId) });
-  };
-
-  const renderEquipmentSlot = (label: string, icon: React.ReactNode, slotType: 'main' | 'off' | 'armor') => {
-      const equippedWeapons = inventory.filter(i => i.isEquipped && i.type === 'weapon');
-      const equippedArmor = inventory.find(i => i.isEquipped && i.type === 'armor');
-      let itemToShow: ExtendedItem | undefined;
-      if (slotType === 'armor') itemToShow = equippedArmor;
-      else if (slotType === 'main') itemToShow = equippedWeapons[0];
-      else if (slotType === 'off') itemToShow = equippedWeapons[1];
-
-      return (
-          <div className="bg-black/40 border border-white/10 rounded-lg p-2 flex flex-col items-center justify-center h-24 w-24 relative group cursor-pointer hover:border-amber-500/50 transition-all">
-              <div className="text-[10px] text-gray-500 uppercase tracking-widest absolute top-1">{label}</div>
-              {itemToShow ? (
-                  <>
-                    <img src={itemToShow.image || '/assets/item-placeholder.png'} className="w-12 h-12 object-contain drop-shadow-md" alt={itemToShow.name} />
-                    <div className="text-[9px] text-amber-200 mt-1 truncate w-full text-center px-1">{itemToShow.name}</div>
-                    <button onClick={(e) => { e.stopPropagation(); handleEquipItem(itemToShow!); }} className="absolute inset-0 bg-red-900/80 opacity-0 group-hover:opacity-100 flex items-center justify-center text-xs font-bold text-white transition-opacity rounded-lg">Desequipar</button>
-                  </>
-              ) : ( <div className="text-white/10">{icon}</div> )}
-          </div>
-      );
   };
 
   return (
@@ -315,87 +257,39 @@ const SidebarPlayer: React.FC<SidebarPlayerProps> = ({
                     </div>
                 )}
 
-                {/* 2. ABA INVENTÁRIO */}
-                {activeTab === 'inv' && (
-                    <div className="animate-in fade-in slide-in-from-right-4 duration-300">
-                        <div className="mb-6">
-                            <h3 className="text-amber-500 font-mono text-[10px] uppercase tracking-[0.3em] font-black mb-3">Equipado</h3>
-                            <div className="flex justify-center gap-4">
-                                {renderEquipmentSlot('Mão Direita', <Sword size={30} className="opacity-20"/>, 'main')}
-                                {renderEquipmentSlot('Armadura', <Shield size={30} className="opacity-20"/>, 'armor')}
-                                {renderEquipmentSlot('Mão Esquerda', <Shield size={30} className="opacity-20"/>, 'off')}
-                            </div>
-                        </div>
-
-                        <div className="flex justify-between items-center mb-4">
-                            <h3 className="text-gray-500 font-mono text-[10px] uppercase tracking-[0.3em] font-black">
-                                Mochila ({backpackItems.length}/{INVENTORY_SLOTS})
-                            </h3>
-                            <button onClick={() => setShowItemForm(!showItemForm)} className="text-xs bg-white/5 hover:bg-white/10 p-1 rounded border border-white/10"><Plus size={14}/></button>
-                        </div>
-
-                        {showItemForm && (
-                            <div className="bg-black/60 border border-white/10 rounded p-3 mb-4 text-xs space-y-2 shadow-2xl backdrop-blur-md">
-                                <input className="w-full bg-gray-900 border border-gray-600 rounded p-1 text-white" placeholder="Nome" value={newItem.name||''} onChange={e=>setNewItem({...newItem,name:e.target.value})}/>
-                                <div className="w-full h-16 border border-gray-600 rounded bg-gray-900 flex items-center justify-center cursor-pointer hover:border-blue-500 overflow-hidden" onClick={()=>fileInputRef.current?.click()}>
-                                    <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleImageUpload}/>
-                                    {newItem.image ? <img src={newItem.image} alt="Preview" className="w-full h-full object-contain"/> : <span className="text-[9px] text-gray-500 uppercase font-bold">Upload</span>}
-                                </div>
-                                <div className="grid grid-cols-2 gap-2">
-                                    <select className="bg-gray-900 border border-gray-600 rounded p-1 text-white" value={newItem.type} onChange={e=>setNewItem({...newItem,type:e.target.value as any})}><option value="weapon">Arma</option><option value="armor">Armadura</option><option value="potion">Poção</option><option value="misc">Geral</option></select>
-                                    <select className="bg-gray-900 border border-gray-600 rounded p-1 text-white uppercase font-bold" value={newItem.rarity||'common'} onChange={e=>setNewItem({...newItem,rarity:e.target.value as any})}><option value="common">Comum</option><option value="rare">Raro</option><option value="epic">Épico</option><option value="legendary">Lendário</option></select>
-                                </div>
-                                <div className="grid grid-cols-2 gap-2"><input type="number" className="bg-gray-900 border border-gray-600 rounded p-1 text-white" placeholder="Qtd" value={newItem.quantity} onChange={e=>setNewItem({...newItem,quantity:parseInt(e.target.value)})}/><input className="bg-gray-900 border border-gray-600 rounded p-1 text-white" placeholder="Valor" value={newItem.value||''} onChange={e=>setNewItem({...newItem,value:e.target.value})}/></div>
-                                <input className="w-full bg-gray-900 border border-gray-600 rounded p-1 text-white" placeholder="Dano (ex: 1d8)" value={newItem.stats?.damage||''} onChange={e=>setNewItem({...newItem,stats:{...newItem.stats,damage:e.target.value}})}/>
-                                <button onClick={handleAddItem} className="w-full bg-blue-800 hover:bg-blue-700 text-white font-bold py-2 rounded">Criar</button>
-                            </div>
-                        )}
-
-                        {/* --- GRID DE SLOTS (ITENS + VAZIOS) --- */}
-                        <div className="grid grid-cols-3 gap-3 pb-4 px-1">
-                            {Array.from({ length: INVENTORY_SLOTS }).map((_, index) => {
-                                const item = backpackItems[index];
-                                return (
-                                    <div 
-                                        key={index} 
-                                        className="relative w-full aspect-[4/6] rounded-md bg-black/20 border border-white/5 flex items-center justify-center shadow-inner"
-                                    >
-                                        {item ? (
-                                            <div className="w-full h-full">
-                                                <ItemCard 
-                                                    item={item} 
-                                                    onUpdate={(upd) => handleUpdateItem(item.id, upd)} 
-                                                    onDelete={() => handleDeleteItem(item.id)} 
-                                                    onEquip={handleEquipItem} 
-                                                />
-                                            </div>
-                                        ) : (
-                                            <div className="w-full h-full flex items-center justify-center opacity-10 group cursor-default">
-                                                <div className="w-6 h-6 border-2 border-dashed border-gray-500 rounded-full"></div>
-                                            </div>
-                                        )}
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
+                {/* 2. ABA INVENTÁRIO (NOVA) */}
+                {activeTab === 'inv' && myCharacter && (
+                    <Inventory 
+                        items={inventory} 
+                        onEquip={handleEquipItem}
+                        onDrop={handleDropItem}
+                    />
                 )}
 
                 {/* 3. ABA MAGIAS */}
                 {activeTab === 'spells' && (
                     <div className="animate-in fade-in slide-in-from-right-4 duration-300">
-                        <div className="text-center mb-6"><h3 className="text-purple-400 font-mono text-xs uppercase tracking-widest mb-1">Grimório Arcano</h3><p className="text-[10px] text-gray-500">Sabedoria {attributes.SAB} • CD {8+proficiencyBonus+Math.floor((attributes.SAB-10)/2)}</p></div>
-                        <div className="space-y-4">
-                            {[1, 2, 3].map(level => {
-                                const max = (SPELL_SLOTS_BY_LEVEL[savedLevel]||[])[level-1]||0; if(max===0)return null; const used = spellSlotsUsed[level-1]||0;
-                                return (
-                                    <div key={level} className="bg-black/30 border border-purple-900/30 rounded p-3">
-                                        <div className="flex justify-between items-center mb-2"><span className="text-xs font-bold text-purple-200">Círculo {level}</span><div className="flex gap-1">{Array.from({length:max}).map((_,i)=><div key={i} className={`w-2 h-2 rounded-full border border-purple-500 ${i<(max-used)?'bg-purple-400 shadow-[0_0_5px_#a855f7]':'bg-black opacity-30'}`}></div>)}</div></div>
-                                        <div className="space-y-1"><button onClick={()=>handleCastSpell("Mísseis Mágicos",level)} disabled={used>=max} className="w-full text-left p-2 rounded hover:bg-purple-900/20 flex justify-between items-center group disabled:opacity-30"><span className="text-xs text-gray-300 group-hover:text-white">Mísseis Mágicos</span><span className="text-[9px] text-purple-500 font-bold uppercase">Conjurar</span></button></div>
-                                    </div>
-                                )
-                            })}
-                        </div>
+                        {myCharacter ? (
+                            <>
+                                <div className="text-center mb-6"><h3 className="text-purple-400 font-mono text-xs uppercase tracking-widest mb-1">Grimório Arcano</h3><p className="text-[10px] text-gray-500">Sabedoria {attributes.SAB} • CD {8+proficiencyBonus+Math.floor((attributes.SAB-10)/2)}</p></div>
+                                <div className="space-y-4">
+                                    {[1, 2, 3].map(level => {
+                                        const max = (SPELL_SLOTS_BY_LEVEL[savedLevel]||[])[level-1]||0; if(max===0)return null; const used = spellSlotsUsed[level-1]||0;
+                                        return (
+                                            <div key={level} className="bg-black/30 border border-purple-900/30 rounded p-3">
+                                                <div className="flex justify-between items-center mb-2"><span className="text-xs font-bold text-purple-200">Círculo {level}</span><div className="flex gap-1">{Array.from({length:max}).map((_,i)=><div key={i} className={`w-2 h-2 rounded-full border border-purple-500 ${i<(max-used)?'bg-purple-400 shadow-[0_0_5px_#a855f7]':'bg-black opacity-30'}`}></div>)}</div></div>
+                                                <div className="space-y-1"><button onClick={()=>handleCastSpell("Mísseis Mágicos",level)} disabled={used>=max} className="w-full text-left p-2 rounded hover:bg-purple-900/20 flex justify-between items-center group disabled:opacity-30"><span className="text-xs text-gray-300 group-hover:text-white">Mísseis Mágicos</span><span className="text-[9px] text-purple-500 font-bold uppercase">Conjurar</span></button></div>
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            </>
+                        ) : (
+                            <div className="flex flex-col items-center justify-center h-40 text-gray-500">
+                                <Scroll size={40} className="mb-2 opacity-20" />
+                                <p className="text-xs">Selecione um personagem</p>
+                            </div>
+                        )}
                     </div>
                 )}
 
@@ -407,4 +301,4 @@ const SidebarPlayer: React.FC<SidebarPlayerProps> = ({
   );
 };
 
-export default SidebarPlayer;   
+export default SidebarPlayer;

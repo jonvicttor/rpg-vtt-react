@@ -31,11 +31,11 @@ interface CanvasMapProps {
   externalScale?: number;
   onMapChange?: (offset: { x: number, y: number }, scale: number) => void;
   
-  // Prop de Foco (Item 2)
+  // Prop de Foco
   focusEntity?: Entity | null;
   
-  // Prop de Brilho/Dia e Noite (Item 3)
-  globalBrightness?: number; // 1.0 = Dia, 0.0 = Breu
+  // Prop de Brilho
+  globalBrightness?: number; 
 }
 
 interface FloatingText {
@@ -62,13 +62,34 @@ const CanvasMap: React.FC<CanvasMapProps> = ({
   onSelectEntity,
   externalOffset, externalScale, onMapChange,
   focusEntity,
-  globalBrightness = 1 // Valor padrão: 1 (Dia Claro)
+  globalBrightness = 1
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  
+  // --- ESTADO DO MAPA (OFFSET E SCALE) ---
   const [offset, setOffset] = useState({ x: 0, y: 0 }); 
   const [scale, setScale] = useState(1); 
   
-  // --- SINCRONIA: Jogador obedece ao Mestre ---
+  // --- ESTADO DE INTERAÇÃO (MOUSE) ---
+  const isPanningRef = useRef(false);
+  const panStartMouseRef = useRef({ x: 0, y: 0 });
+  const panStartOffsetRef = useRef({ x: 0, y: 0 });
+  const mousePosRef = useRef({ x: 0, y: 0 }); 
+
+  const [draggingEntityId, setDraggingEntityId] = useState<number | null>(null);
+  const [isPaintingFog, setIsPaintingFog] = useState(false);
+  
+  const [tokenImages, setTokenImages] = useState<Record<string, HTMLImageElement>>({});
+  const [mapImage, setMapImage] = useState<HTMLImageElement | null>(null);
+
+  const [measureStart, setMeasureStart] = useState<{x: number, y: number} | null>(null);
+  const [aoeStart, setAoeStart] = useState<{x: number, y: number} | null>(null);
+  const isMKeyPressed = useRef(false);
+
+  const [floatingTexts, setFloatingTexts] = useState<FloatingText[]>([]);
+  const prevEntitiesRef = useRef<Record<number, number>>({}); 
+
+  // --- SINCRONIA ---
   useEffect(() => {
     if (role === 'PLAYER' && externalOffset && externalScale) {
         setOffset(externalOffset);
@@ -76,41 +97,20 @@ const CanvasMap: React.FC<CanvasMapProps> = ({
     }
   }, [externalOffset, externalScale, role]);
 
-  // --- EFEITO PARA FOCAR NA ENTIDADE (Item 2) ---
+  // --- FOCO AUTOMÁTICO ---
   useEffect(() => {
     if (focusEntity && canvasRef.current) {
         const canvas = canvasRef.current;
-        // Calcula o centro do token em pixels reais
         const entityX = focusEntity.x * gridSize + (gridSize * (focusEntity.size || 1)) / 2;
         const entityY = focusEntity.y * gridSize + (gridSize * (focusEntity.size || 1)) / 2;
-
-        // Centraliza a câmera nesse ponto
         const newOffsetX = (canvas.width / 2) - (entityX * scale);
         const newOffsetY = (canvas.height / 2) - (entityY * scale);
-
         setOffset({ x: newOffsetX, y: newOffsetY });
     }
-  }, [focusEntity, gridSize, scale]); // Removida dependência cíclica onMapChange/role para foco local
+  }, [focusEntity, gridSize, scale]); 
 
-  const [isPanning, setIsPanning] = useState(false);
-  const [lastMousePos, setLastMousePos] = useState({ x: 0, y: 0 });
-  const [draggingEntityId, setDraggingEntityId] = useState<number | null>(null);
-  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
-  const [isPaintingFog, setIsPaintingFog] = useState(false);
-  const [tokenImages, setTokenImages] = useState<Record<string, HTMLImageElement>>({});
-  const [mapImage, setMapImage] = useState<HTMLImageElement | null>(null);
-
-  const [measureStart, setMeasureStart] = useState<{x: number, y: number} | null>(null);
-  const [aoeStart, setAoeStart] = useState<{x: number, y: number} | null>(null);
-
-  const isMKeyPressed = useRef(false);
-  const currentMousePosRef = useRef({ x: 0, y: 0 });
-
-  const [floatingTexts, setFloatingTexts] = useState<FloatingText[]>([]);
-  const prevEntitiesRef = useRef<Record<number, number>>({}); 
-
+  // --- ASSETS ---
   useEffect(() => { const img = new Image(); img.src = mapUrl; img.onload = () => setMapImage(img); }, [mapUrl]);
-  
   useEffect(() => { 
     entities.forEach(ent => { 
         if (ent.image && !tokenImages[ent.image]) { 
@@ -119,7 +119,7 @@ const CanvasMap: React.FC<CanvasMapProps> = ({
     }); 
   }, [entities, tokenImages]);
 
-  // EVENTOS DE TECLADO
+  // --- TECLADO ---
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const key = e.key?.toLowerCase();
@@ -127,8 +127,8 @@ const CanvasMap: React.FC<CanvasMapProps> = ({
       if (key === 'f') {
         const rect = canvasRef.current?.getBoundingClientRect();
         if (!rect) return;
-        const worldX = (currentMousePosRef.current.x - rect.left - offset.x) / scale;
-        const worldY = (currentMousePosRef.current.y - rect.top - offset.y) / scale;
+        const worldX = (mousePosRef.current.x - rect.left - offset.x) / scale;
+        const worldY = (mousePosRef.current.y - rect.top - offset.y) / scale;
         const hovered = entities.find(ent => {
           const s = (ent.size || 1) * gridSize;
           return worldX >= ent.x * gridSize && worldX <= ent.x * gridSize + s &&
@@ -148,7 +148,7 @@ const CanvasMap: React.FC<CanvasMapProps> = ({
     };
   }, [entities, offset, scale, gridSize, onFlipToken]);
 
-  // TEXTOS FLUTUANTES
+  // --- FLOATING TEXT ---
   useEffect(() => {
     entities.forEach(ent => {
         const prevHp = prevEntitiesRef.current[ent.id];
@@ -174,10 +174,18 @@ const CanvasMap: React.FC<CanvasMapProps> = ({
     return () => clearInterval(interval);
   }, [floatingTexts.length]);
 
+  // --- DRAW TOKEN ---
   const drawToken = useCallback((ctx: CanvasRenderingContext2D, entity: Entity, x: number, y: number, size: number, images: Record<string, HTMLImageElement>) => {
+    const isHidden = entity.visible === false;
+    if (role === 'PLAYER' && isHidden) return; 
+
+    ctx.save();
+    if (role === 'DM' && isHidden) ctx.globalAlpha = 0.5;
+
     const tokenImage = entity.image ? images[entity.image] : null; 
     const isDead = entity.hp <= 0;
     
+    // Aura de Turno
     if (entity.id === activeTurnId) {
         ctx.save();
         const pulse = Math.sin(Date.now() / 500) * 5 + 5;
@@ -185,14 +193,19 @@ const CanvasMap: React.FC<CanvasMapProps> = ({
         ctx.beginPath(); ctx.ellipse(x + size / 2, y + size / 2, size / 1.7 + pulse/5, size / 1.7 + pulse/5, 0, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
     }
 
-    ctx.save(); ctx.fillStyle = "rgba(0, 0, 0, 0.4)"; ctx.beginPath(); ctx.ellipse(x + size / 2, y + size - 5, size / 2.5, size / 5, 0, 0, Math.PI * 2); ctx.fill();
+    // Sombra Base
+    ctx.save(); ctx.fillStyle = "rgba(0, 0, 0, 0.4)"; ctx.beginPath(); ctx.ellipse(x + size / 2, y + size - 5, size / 2.5, size / 5, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
     
+    // Seleção
     const isAttacker = entity.id === attackerId; const isTarget = targetEntityIds.includes(entity.id);
     if (isAttacker || isTarget) {
+        ctx.save();
         ctx.lineWidth = 3 / scale; ctx.strokeStyle = isAttacker ? "#3b82f6" : "#ef4444"; ctx.shadowColor = ctx.strokeStyle; ctx.shadowBlur = 15; 
         ctx.beginPath(); ctx.ellipse(x + size / 2, y + size / 2, size / 1.8, size / 1.8, 0, 0, Math.PI * 2); ctx.stroke();
+        ctx.restore();
     }
 
+    // Imagem
     if (tokenImage) {
       ctx.save(); ctx.translate(x + size / 2, y + size / 2); ctx.rotate(((entity.rotation || 0) * Math.PI) / 180);
       if (entity.mirrored) ctx.scale(-1, 1);
@@ -204,9 +217,17 @@ const CanvasMap: React.FC<CanvasMapProps> = ({
       if (isDead) { ctx.fillStyle = "white"; ctx.font = `${size / 2}px sans-serif`; ctx.textAlign = "center"; ctx.fillText("💀", x + size / 2, y + size / 2); }
     }
     
-    ctx.restore(); ctx.fillStyle = "white"; ctx.font = `bold ${12 / scale}px sans-serif`; ctx.textAlign = "center"; ctx.shadowColor = "black"; ctx.shadowBlur = 4;
+    // Ícone de Oculto (DM)
+    if (role === 'DM' && isHidden) {
+        ctx.save(); ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.beginPath(); ctx.arc(x + size - 10, y + 10, 8, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = "#fff"; ctx.font = "12px Arial"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText("Ø", x + size - 10, y + 10); ctx.restore();
+    }
+
+    // Texto (Nome)
+    ctx.fillStyle = "white"; ctx.font = `bold ${12 / scale}px sans-serif`; ctx.textAlign = "center"; ctx.shadowColor = "black"; ctx.shadowBlur = 4;
     ctx.fillText(entity.name, x + size/2, y + size + (14 / scale));
 
+    // Condições
     if (!isDead && entity.conditions && entity.conditions.length > 0) {
         const iconSize = size / 3.5;
         entity.conditions.forEach((cond, index) => {
@@ -215,48 +236,57 @@ const CanvasMap: React.FC<CanvasMapProps> = ({
             ctx.font = `${iconSize}px sans-serif`; ctx.textAlign = "center"; ctx.fillText(icon, x + size / 2 + xOffset, y + size + (28 / scale));
         });
     }
-  }, [scale, activeTurnId, targetEntityIds, attackerId]);
 
-  // --- RENDERIZAÇÃO DO CANVAS ---
+    ctx.restore(); // Fecha o ctx.save() inicial
+  }, [scale, activeTurnId, targetEntityIds, attackerId, role]);
+
+  // --- RENDER LOOP PRINCIPAL ---
   useEffect(() => {
     const canvas = canvasRef.current; if (!canvas || !mapImage) return;
     const ctx = canvas.getContext('2d'); if (!ctx) return;
     
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
+    
+    // CORREÇÃO CRÍTICA DO SMEARING:
+    // Reseta a matriz de transformação antes de limpar. Isso garante que limpe TUDO.
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
+    // Agora aplica a transformação para desenhar o mapa no lugar certo
     ctx.save(); 
     ctx.translate(offset.x, offset.y); 
     ctx.scale(scale, scale);
     
-    // Desenha Mapa
+    // 1. Mapa
     ctx.drawImage(mapImage, 0, 0, mapImage.width, mapImage.height);
 
-    // Desenha Tokens
+    // 2. Tokens
     [...entities].sort((a, b) => a.y - b.y).forEach(ent => {
         const tokenScale = ent.size || 1;
         const actualSize = gridSize * tokenScale;
         let dx = ent.x * gridSize; 
         let dy = ent.y * gridSize;
         if (ent.id === draggingEntityId) { 
-            dx = (mousePos.x - offset.x)/scale - actualSize/2; 
-            dy = (mousePos.y - offset.y)/scale - actualSize/2; 
+            const rect = canvasRef.current!.getBoundingClientRect();
+            const mX = (mousePosRef.current.x - rect.left - offset.x) / scale;
+            const mY = (mousePosRef.current.y - rect.top - offset.y) / scale;
+            dx = mX - actualSize/2; 
+            dy = mY - actualSize/2; 
         }
         drawToken(ctx, ent, dx, dy, actualSize, tokenImages);
     });
 
-    // --- DESENHA A ESCURIDÃO (Item 3) ---
+    // 3. Global Darkness
     if (globalBrightness < 1) {
         ctx.save();
         ctx.fillStyle = "#000000";
-        ctx.globalAlpha = 1 - globalBrightness; // 0.3 brilho = 0.7 opacidade preta
+        ctx.globalAlpha = 1 - globalBrightness; 
         ctx.fillRect(0, 0, mapImage.width, mapImage.height);
         ctx.restore();
     }
-    // ------------------------------------
 
-    // Desenha Neblina (DM ou Player)
+    // 4. Fog
     if (fogGrid) {
       ctx.fillStyle = "#000000"; 
       ctx.globalAlpha = role === 'DM' ? 0.6 : 1.0; 
@@ -268,10 +298,11 @@ const CanvasMap: React.FC<CanvasMapProps> = ({
       ctx.globalAlpha = 1.0; 
     }
 
+    // 5. AoE
     if (aoeStart && activeAoE) {
         const rect = canvasRef.current!.getBoundingClientRect();
-        const mX = (currentMousePosRef.current.x - rect.left - offset.x) / scale;
-        const mY = (currentMousePosRef.current.y - rect.top - offset.y) / scale;
+        const mX = (mousePosRef.current.x - rect.left - offset.x) / scale;
+        const mY = (mousePosRef.current.y - rect.top - offset.y) / scale;
         const radius = Math.hypot(mX - aoeStart.x, mY - aoeStart.y);
         ctx.save();
         ctx.fillStyle = aoeColor + "33"; 
@@ -287,10 +318,11 @@ const CanvasMap: React.FC<CanvasMapProps> = ({
         ctx.restore();
     }
 
+    // 6. Measure
     if (measureStart) {
         const rect = canvasRef.current!.getBoundingClientRect();
-        const mX = (currentMousePosRef.current.x - rect.left - offset.x) / scale;
-        const mY = (currentMousePosRef.current.y - rect.top - offset.y) / scale;
+        const mX = (mousePosRef.current.x - rect.left - offset.x) / scale;
+        const mY = (mousePosRef.current.y - rect.top - offset.y) / scale;
         ctx.beginPath(); ctx.moveTo(measureStart.x, measureStart.y); ctx.lineTo(mX, mY);
         ctx.strokeStyle = "#fbbf24"; ctx.lineWidth = 3 / scale; ctx.setLineDash([10, 5]); ctx.stroke(); ctx.setLineDash([]); 
         const dist = (Math.hypot(mX - measureStart.x, mY - measureStart.y) / gridSize) * 1.5;
@@ -298,12 +330,15 @@ const CanvasMap: React.FC<CanvasMapProps> = ({
         ctx.fillText(`${dist.toFixed(1)}m`, (measureStart.x+mX)/2, (measureStart.y+mY)/2);
     }
 
+    // 7. Floating Text
     floatingTexts.forEach(ft => {
         ctx.save(); ctx.globalAlpha = ft.life / 20; ctx.fillStyle = ft.color; ctx.font = `bold ${24 / scale}px sans-serif`; ctx.textAlign = "center"; ctx.fillText(ft.text, ft.x, ft.y); ctx.restore();
     });
 
     ctx.restore();
-  }, [mapImage, entities, offset, scale, draggingEntityId, mousePos, gridSize, tokenImages, drawToken, fogGrid, role, targetEntityIds, attackerId, measureStart, aoeStart, activeAoE, floatingTexts, aoeColor, activeTurnId, globalBrightness]); // Adicionado globalBrightness
+  }, [mapImage, entities, offset, scale, draggingEntityId, gridSize, tokenImages, drawToken, fogGrid, role, targetEntityIds, attackerId, measureStart, aoeStart, activeAoE, floatingTexts, aoeColor, activeTurnId, globalBrightness]); 
+
+  // --- HANDLERS (MOUSE & WHEEL) ---
 
   const handleWheel = (e: React.WheelEvent) => {
     const rect = canvasRef.current!.getBoundingClientRect();
@@ -352,44 +387,68 @@ const CanvasMap: React.FC<CanvasMapProps> = ({
     let tokenClicked = false;
     for (let i = entities.length - 1; i >= 0; i--) {
       const ent = entities[i];
+      if (role === 'PLAYER' && ent.visible === false) continue;
+
       const ts = ent.size || 1;
       if (worldX >= ent.x*gridSize && worldX <= ent.x*gridSize + ts*gridSize && worldY >= ent.y*gridSize && worldY <= ent.y*gridSize + ts*gridSize) {
         if (e.altKey) onSetTarget(ent.id, e.shiftKey); else onSetAttacker(ent.id);
-        setDraggingEntityId(ent.id); setMousePos({ x: clickX, y: clickY });
+        setDraggingEntityId(ent.id); 
         tokenClicked = true; return;
       }
     }
+    
     if (!tokenClicked) { 
-        if (e.ctrlKey) { setIsPanning(true); setLastMousePos({ x: e.clientX, y: e.clientY }); }
+        if (e.ctrlKey) { 
+            // --- INÍCIO DA ÂNCORA (CORREÇÃO DE PULO) ---
+            isPanningRef.current = true;
+            panStartMouseRef.current = { x: e.clientX, y: e.clientY };
+            panStartOffsetRef.current = { x: offset.x, y: offset.y }; // Salva a posição EXATA do mapa no clique
+        }
         if (!e.shiftKey && !e.altKey) { onSetTarget(null); onSetAttacker(null); }
     }
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    currentMousePosRef.current = { x: e.clientX, y: e.clientY };
+    mousePosRef.current = { x: e.clientX, y: e.clientY };
     const rect = canvasRef.current!.getBoundingClientRect();
     const curX = e.clientX - rect.left; const curY = e.clientY - rect.top;
-    if (draggingEntityId !== null || measureStart || aoeStart) setMousePos({ x: curX, y: curY }); 
 
     if (isFogMode && isPaintingFog) {
         const worldX = (curX - offset.x) / scale; const worldY = (curY - offset.y) / scale;
         onFogUpdate(Math.floor(worldX/gridSize), Math.floor(worldY/gridSize), fogTool === 'reveal');
     }
-    if (isPanning) {
-        const newOffset = { x: offset.x + (e.clientX - lastMousePos.x), y: offset.y + (e.clientY - lastMousePos.y) };
+    
+    // --- LÓGICA DE ÂNCORA (ABSOLUTE DRAG) ---
+    if (isPanningRef.current) {
+        // Calcula quanto o mouse andou desde o clique inicial
+        const deltaX = e.clientX - panStartMouseRef.current.x;
+        const deltaY = e.clientY - panStartMouseRef.current.y;
+
+        // Nova posição = Posição Original do Mapa + Deslocamento do Mouse
+        // Isso elimina qualquer aceleração ou drift
+        const newOffset = {
+            x: panStartOffsetRef.current.x + deltaX,
+            y: panStartOffsetRef.current.y + deltaY
+        };
+        
         setOffset(newOffset);
-        setLastMousePos({ x: e.clientX, y: e.clientY });
-        if (role === 'DM' && onMapChange) { onMapChange(newOffset, scale); }
+        
+        if (role === 'DM' && onMapChange) { 
+            onMapChange(newOffset, scale); 
+        }
     }
   };
 
   const handleMouseUp = (e: React.MouseEvent) => {
+    isPanningRef.current = false; // Soltou o mouse, para de arrastar
+
     if (aoeStart && activeAoE) {
         const rect = canvasRef.current!.getBoundingClientRect();
         const wX = (e.clientX - rect.left - offset.x) / scale;
         const wY = (e.clientY - rect.top - offset.y) / scale;
         const radius = Math.hypot(wX - aoeStart.x, wY - aoeStart.y);
         const hits = entities.filter(ent => {
+            if (role === 'PLAYER' && ent.visible === false) return false;
             const ts = ent.size || 1;
             const cX = ent.x * gridSize + (ts * gridSize) / 2;
             const cY = ent.y * gridSize + (ts * gridSize) / 2;
@@ -405,22 +464,23 @@ const CanvasMap: React.FC<CanvasMapProps> = ({
         onMoveToken(draggingEntityId, Math.floor(worldX/gridSize), Math.floor(worldY/gridSize)); 
         setDraggingEntityId(null); 
     }
-    setMeasureStart(null); setIsPanning(false); setIsPaintingFog(false);
+    setMeasureStart(null); setIsPaintingFog(false);
   };
 
   return (
     <div className="w-full h-full bg-[#1a1a1a] overflow-hidden flex items-center justify-center relative">
       <canvas 
         ref={canvasRef} width={1920} height={1080} 
-        className={`shadow-2xl ${isFogMode ? 'cursor-cell' : (measureStart || activeAoE) ? 'cursor-crosshair' : isPanning ? 'cursor-grabbing' : 'cursor-grab'}`}
+        className={`shadow-2xl ${isFogMode ? 'cursor-cell' : (measureStart || activeAoE) ? 'cursor-crosshair' : (isPanningRef.current) ? 'cursor-grabbing' : 'cursor-grab'}`}
         onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} 
-        onMouseLeave={() => { setDraggingEntityId(null); setIsPanning(false); setIsPaintingFog(false); setMeasureStart(null); setAoeStart(null); }} 
+        onMouseLeave={() => { setDraggingEntityId(null); isPanningRef.current = false; setIsPaintingFog(false); setMeasureStart(null); setAoeStart(null); }} 
         onWheel={handleWheel} onContextMenu={(e) => e.preventDefault()} 
         onDoubleClick={(e) => {
             const rect = canvasRef.current!.getBoundingClientRect();
             const wX = (e.clientX - rect.left - offset.x) / scale;
             const wY = (e.clientY - rect.top - offset.y) / scale;
             const ent = entities.find(en => {
+                if (role === 'PLAYER' && en.visible === false) return false;
                 const ts = en.size || 1;
                 return wX >= en.x*gridSize && wX <= en.x*gridSize + ts*gridSize && wY >= en.y*gridSize && wY <= en.y*gridSize + ts*gridSize;
             });

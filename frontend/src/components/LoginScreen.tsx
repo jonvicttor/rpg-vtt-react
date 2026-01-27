@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import socket from '../services/socket';
 import { Howl } from 'howler';
 import { Trash2, Plus, Play, Sword, Crown, ChevronRight, Search, UserPlus, Sparkles, XCircle, Scroll } from 'lucide-react';
@@ -54,6 +54,38 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
   const [stats, setStats] = useState({ str: 8, dex: 8, con: 8, int: 8, wis: 8, cha: 8 });
   const [pointsLeft, setPointsLeft] = useState(27);
   const [showFullImage, setShowFullImage] = useState(false);
+
+  // --- REFS PARA CONTROLE DE SCROLL ---
+  const raceScrollRef = useRef<HTMLDivElement>(null);
+  const classScrollRef = useRef<HTMLDivElement>(null);
+  const statsScrollRef = useRef<HTMLDivElement>(null); // NOVO REF PARA OS ATRIBUTOS
+
+  const prevRaceScrollTop = useRef(0);
+  const prevClassScrollTop = useRef(0);
+  const prevStatsScrollTop = useRef(0); // NOVO REF DE ESTADO DO SCROLL
+
+  // UseLayoutEffect para restaurar o scroll imediatamente após renderização
+  useLayoutEffect(() => {
+    if (raceScrollRef.current) {
+        raceScrollRef.current.scrollTop = prevRaceScrollTop.current;
+    }
+    if (classScrollRef.current) {
+        classScrollRef.current.scrollTop = prevClassScrollTop.current;
+    }
+    if (statsScrollRef.current) {
+        statsScrollRef.current.scrollTop = prevStatsScrollTop.current; // RESTAURAÇÃO DO SCROLL DOS ATRIBUTOS
+    }
+  });
+
+  const handleSelectRace = (r: keyof typeof RACES) => {
+      if (raceScrollRef.current) prevRaceScrollTop.current = raceScrollRef.current.scrollTop;
+      setSelectedRace(r);
+  };
+
+  const handleSelectClass = (c: keyof typeof CLASSES) => {
+      if (classScrollRef.current) prevClassScrollTop.current = classScrollRef.current.scrollTop;
+      setSelectedClass(c);
+  };
 
   useEffect(() => {
     const saved = localStorage.getItem('nexus_last_char');
@@ -123,6 +155,11 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
   }, [stats]);
 
   const handleStatChange = (attr: keyof typeof stats, increment: boolean) => {
+    // SALVA A POSIÇÃO DO SCROLL ANTES DE ALTERAR O ESTADO
+    if (statsScrollRef.current) {
+        prevStatsScrollTop.current = statsScrollRef.current.scrollTop;
+    }
+
     const nextVal = increment ? stats[attr] + 1 : stats[attr] - 1;
     if (nextVal < 8 || nextVal > 15) return;
     const diff = POINT_COST[nextVal] - POINT_COST[stats[attr]];
@@ -187,7 +224,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
         : 'from-blue-900 via-blue-800 to-blue-950 border-blue-500/40 shadow-blue-900/30 text-blue-50 hover:text-white';
     
     return (
-        <button onClick={onClick} disabled={disabled} className={`relative group overflow-hidden px-6 py-3 rounded-xl border-t border-b ${colors} bg-gradient-to-r shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-95 transition-all duration-200 ${fullWidth ? 'w-full' : ''} ${className} disabled:opacity-50 disabled:cursor-not-allowed`}>
+        <button type="button" onClick={onClick} disabled={disabled} className={`relative group overflow-hidden px-6 py-3 rounded-xl border-t border-b ${colors} bg-gradient-to-r shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-95 transition-all duration-200 ${fullWidth ? 'w-full' : ''} ${className} disabled:opacity-50 disabled:cursor-not-allowed`}>
             <div className="absolute inset-0 bg-gradient-to-b from-white/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
             <span className={`relative z-10 font-black uppercase tracking-[0.2em] text-xs flex items-center justify-center gap-2 drop-shadow-md`}>
                 {children}
@@ -234,7 +271,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
     </div>
   );
 
-  // --- PASSO 1: TELA INICIAL (CORRIGIDA - ÍCONES E TEXTO CENTRALIZADOS) ---
+  // --- PASSO 1: TELA INICIAL ---
   if (step === 1) return (
     <BackgroundWrapper>
       <div className="flex flex-col items-center gap-16 w-full max-w-6xl">
@@ -251,17 +288,13 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
 
         <div className="flex flex-col md:flex-row gap-8 w-full justify-center items-stretch px-8">
           
-          {/* BOTÃO JOGADOR - CENTRALIZADO */}
           <button onClick={() => { setRole('PLAYER'); if (savedChar) setStep(1.5); else setStep(1.2); }} className="group relative flex-1 h-[280px] overflow-hidden rounded-3xl transition-all duration-500 hover:scale-[1.03] active:scale-95">
              <ArcaneContainer className="h-full hover:shadow-[0_0_50px_rgba(37,99,235,0.3)] hover:border-blue-500/50 transition-all">
                 <div className="absolute inset-0 bg-gradient-to-br from-blue-900/40 via-transparent to-black opacity-60 z-0"></div>
-                {/* FLEX CENTRALIZADO AQUI */}
                 <div className="relative z-10 flex flex-col h-full items-center justify-center p-6 text-center gap-6">
-                    {/* QUADRADO DO ÍCONE CENTRALIZADO */}
                     <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-blue-950 to-black border border-blue-500/30 shadow-lg group-hover:border-blue-400 group-hover:from-blue-900 transition-colors flex items-center justify-center">
                         <Sword size={40} className="text-blue-400 group-hover:text-blue-200 transition-colors drop-shadow-md" />
                     </div>
-                    {/* TEXTO CENTRALIZADO */}
                     <div>
                         <h3 className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-200 to-blue-500 group-hover:from-white group-hover:to-blue-300 transition-all drop-shadow-lg leading-tight" style={{ fontFamily: 'Cinzel Decorative' }}>SOU JOGADOR</h3>
                         <p className="text-blue-200/60 text-sm mt-2 font-serif tracking-wider group-hover:text-blue-100">Entrar na aventura com meu herói.</p>
@@ -271,17 +304,13 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
              </ArcaneContainer>
           </button>
 
-          {/* BOTÃO MESTRE - CENTRALIZADO */}
           <button onClick={() => { setRole('DM'); setStep(2); }} className="group relative flex-1 h-[280px] overflow-hidden rounded-3xl transition-all duration-500 hover:scale-[1.03] active:scale-95">
              <ArcaneContainer className="h-full hover:shadow-[0_0_50px_rgba(220,38,38,0.3)] hover:border-red-500/50 transition-all">
                 <div className="absolute inset-0 bg-gradient-to-br from-red-900/40 via-transparent to-black opacity-60 z-0"></div>
-                {/* FLEX CENTRALIZADO AQUI */}
                 <div className="relative z-10 flex flex-col h-full items-center justify-center p-6 text-center gap-6">
-                    {/* QUADRADO DO ÍCONE CENTRALIZADO */}
                     <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-red-950 to-black border border-red-500/30 shadow-lg group-hover:border-red-400 group-hover:from-red-900 transition-colors flex items-center justify-center">
                         <Crown size={40} className="text-red-400 group-hover:text-red-200 transition-colors drop-shadow-md" />
                     </div>
-                    {/* TEXTO CENTRALIZADO */}
                     <div>
                         <h3 className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-red-200 to-red-500 group-hover:from-white group-hover:to-red-300 transition-all drop-shadow-lg leading-tight" style={{ fontFamily: 'Cinzel Decorative' }}>SOU O MESTRE</h3>
                         <p className="text-red-200/60 text-sm mt-2 font-serif tracking-wider group-hover:text-red-100">Gerenciar o mundo e a história.</p>
@@ -379,7 +408,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
     </BackgroundWrapper>
   );
 
-  // --- PASSO 2: CRIAÇÃO (REDESENHADA PARA SER UM GRIMÓRIO ABERTO) ---
+  // --- PASSO 2: CRIAÇÃO (COM PERSISTÊNCIA DE SCROLL) ---
   if (step === 2 && role === 'PLAYER') return (
     <BackgroundWrapper>
       {showFullImage && (
@@ -445,7 +474,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                 </div>
             </div>
 
-            {/* Coluna Direita: Seletores (COM SCROLL FUNCIONAL) */}
+            {/* Coluna Direita: Seletores (COM SCROLL PERSISTENTE) */}
             <div className="flex-1 flex flex-col p-8 gap-6 overflow-hidden">
                 
                 {/* Seção RAÇA */}
@@ -453,18 +482,22 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                     <h3 className="text-amber-500/80 font-bold uppercase tracking-[0.2em] text-xs mb-3 flex items-center gap-2">
                         <Crown size={14} /> Selecione a Linhagem
                     </h3>
-                    {/* SCROLL CONTAINER */}
-                    <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 bg-black/20 rounded-xl border border-white/5 p-2">
+                    {/* SCROLL CONTAINER COM REF */}
+                    <div ref={raceScrollRef} className="flex-1 overflow-y-auto custom-scrollbar pr-2 bg-black/20 rounded-xl border border-white/5 p-2">
                         <div className="grid grid-cols-2 gap-3">
                             {Object.keys(RACES).map(r => (
-                                <button key={r} onClick={() => setSelectedRace(r as any)} 
-                                    className={`p-3 rounded-lg border text-left transition-all duration-200 relative overflow-hidden group ${selectedRace === r ? 'border-amber-500/60 bg-amber-900/20' : 'border-white/5 bg-white/5 hover:bg-white/10'}`}>
+                                <div 
+                                    key={r} 
+                                    role="button" 
+                                    onClick={() => handleSelectRace(r as any)} 
+                                    className={`cursor-pointer p-3 rounded-lg border text-left transition-all duration-200 relative overflow-hidden group ${selectedRace === r ? 'border-amber-500/60 bg-amber-900/20' : 'border-white/5 bg-white/5 hover:bg-white/10'}`}
+                                >
                                     <div className="relative z-10">
                                         <div className={`font-bold text-sm tracking-wider ${selectedRace === r ? 'text-amber-100' : 'text-gray-400'}`}>{r}</div>
                                         <div className="text-[10px] text-amber-500/60 font-bold uppercase mt-1">{(RACES as any)[r].desc}</div>
                                     </div>
                                     {selectedRace === r && <div className="absolute inset-0 bg-gradient-to-r from-amber-500/10 to-transparent"></div>}
-                                </button>
+                                </div>
                             ))}
                         </div>
                     </div>
@@ -475,15 +508,19 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                     <h3 className="text-amber-500/80 font-bold uppercase tracking-[0.2em] text-xs mb-3 flex items-center gap-2">
                         <Sword size={14} /> Selecione o Ofício
                     </h3>
-                    {/* SCROLL CONTAINER */}
-                    <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 bg-black/20 rounded-xl border border-white/5 p-2">
+                    {/* SCROLL CONTAINER COM REF */}
+                    <div ref={classScrollRef} className="flex-1 overflow-y-auto custom-scrollbar pr-2 bg-black/20 rounded-xl border border-white/5 p-2">
                         <div className="grid grid-cols-3 gap-3">
                             {Object.keys(CLASSES).map(c => (
-                                <button key={c} onClick={() => setSelectedClass(c as any)} 
-                                    className={`p-3 rounded-lg border flex flex-col items-center justify-center gap-2 transition-all duration-200 group ${selectedClass === c ? 'border-amber-500/60 bg-amber-900/20' : 'border-white/5 bg-white/5 hover:bg-white/10'}`}>
+                                <div 
+                                    key={c} 
+                                    role="button" 
+                                    onClick={() => handleSelectClass(c as any)} 
+                                    className={`cursor-pointer p-3 rounded-lg border flex flex-col items-center justify-center gap-2 transition-all duration-200 group ${selectedClass === c ? 'border-amber-500/60 bg-amber-900/20' : 'border-white/5 bg-white/5 hover:bg-white/10'}`}
+                                >
                                     <div className="text-2xl filter drop-shadow-md">{(CLASSES as any)[c].icon}</div>
                                     <div className={`font-bold text-[10px] uppercase tracking-widest ${selectedClass === c ? 'text-amber-100' : 'text-gray-500 group-hover:text-gray-300'}`}>{c}</div>
-                                </button>
+                                </div>
                             ))}
                         </div>
                     </div>
@@ -491,7 +528,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
 
                 {/* Footer de Ação */}
                 <div className="pt-4 border-t border-white/10 flex justify-between items-center">
-                    <button onClick={() => { setStep(1.2); setLoginIntent('CREATE'); }} className="text-white/30 hover:text-white text-xs uppercase tracking-widest font-bold">Cancelar</button>
+                    <button type="button" onClick={() => { setStep(1.2); setLoginIntent('CREATE'); }} className="text-white/30 hover:text-white text-xs uppercase tracking-widest font-bold">Cancelar</button>
                     <MetalButton onClick={handleStartCreation} disabled={isChecking} variant="amber" className="px-8 py-3 text-xs">
                         {isChecking ? <Sparkles className="animate-spin" size={16} /> : 'Próximo: Atributos ❯'}
                     </MetalButton>
@@ -503,7 +540,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
     </BackgroundWrapper>
   );
 
-  // --- PASSO 3: STATUS (PREMIUM) ---
+  // --- PASSO 3: STATUS (PREMIUM - COM SCROLL CORRIGIDO) ---
   if (step === 3 && role === 'PLAYER') return (
     <BackgroundWrapper>
       <ArcaneContainer width="w-[900px]" className="h-[650px] !p-0 flex flex-col">
@@ -518,14 +555,18 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
           </div>
         </div>
 
-        <div className="p-8 flex flex-col h-full items-center justify-center bg-gradient-to-b from-transparent to-black/30">
+        {/* CONTAINER COM SCROLL ADICIONADO E REF */}
+        <div 
+            ref={statsScrollRef}
+            className="p-8 flex flex-col h-full items-center justify-start overflow-y-auto custom-scrollbar bg-gradient-to-b from-transparent to-black/30 w-full"
+        >
             <div className="text-center mb-8 flex-shrink-0 relative">
               <div className="absolute inset-0 bg-amber-600/20 blur-[50px] rounded-full -z-10"></div>
               <span className="text-sm text-amber-300/70 uppercase font-black tracking-[0.4em] drop-shadow-sm border-b border-amber-900/50 pb-2 px-8">Pontos Restantes</span>
               <div className={`text-8xl font-black mt-4 transition-all duration-500 drop-shadow-[0_5px_15px_rgba(0,0,0,0.8)] ${pointsLeft < 0 ? 'text-red-500 scale-110' : pointsLeft === 0 ? 'text-green-400' : 'text-amber-400'}`} style={{ fontFamily: 'Cinzel Decorative' }}>{pointsLeft}</div>
             </div>
 
-            <div className="grid grid-cols-3 gap-5 w-full max-w-3xl mb-6 flex-grow content-center p-6 bg-black/40 rounded-3xl border border-amber-900/30 shadow-inner">
+            <div className="grid grid-cols-3 gap-5 w-full max-w-3xl mb-6 content-center p-6 bg-black/40 rounded-3xl border border-amber-900/30 shadow-inner">
               {Object.keys(stats).map((key) => {
                 const attr = key as keyof typeof stats;
                 const racial = (RACES as any)[selectedRace].bonus[attr];
@@ -538,9 +579,29 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                   <div key={attr} className="bg-gradient-to-b from-black/60 to-black/80 p-4 rounded-2xl border-2 border-amber-900/40 flex flex-col items-center relative transition-all hover:border-amber-500/50 hover:shadow-lg">
                     <span className="text-xs text-amber-500/80 font-black uppercase tracking-[0.25em] mb-3">{attr}</span>
                     <div className="flex items-center gap-3 bg-black/50 p-2 rounded-xl border border-amber-900/30 shadow-inner relative z-10">
-                      <button onClick={() => handleStatChange(attr, false)} disabled={isMin} className="w-8 h-8 flex items-center justify-center bg-black/60 hover:bg-red-900/50 border border-white/5 rounded text-white transition-all disabled:opacity-20">-</button>
+                      
+                      {/* BOTÃO MENOS (AGORA DIV PARA NÃO PEGAR FOCO) */}
+                      <div 
+                        role="button"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => handleStatChange(attr, false)} 
+                        className={`w-8 h-8 flex items-center justify-center bg-black/60 border border-white/5 rounded text-white transition-all select-none ${isMin ? 'opacity-20 cursor-not-allowed' : 'hover:bg-red-900/50 cursor-pointer'}`}
+                      >
+                        -
+                      </div>
+
                       <span className="text-2xl font-black font-serif w-10 text-center text-amber-100">{stats[attr]}</span>
-                      <button onClick={() => handleStatChange(attr, true)} disabled={isMaxed || pointsLeft <= 0} className="w-8 h-8 flex items-center justify-center bg-black/60 hover:bg-green-900/50 border border-white/5 rounded text-white transition-all disabled:opacity-20">+</button>
+                      
+                      {/* BOTÃO MAIS (AGORA DIV PARA NÃO PEGAR FOCO) */}
+                      <div 
+                        role="button"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => handleStatChange(attr, true)} 
+                        className={`w-8 h-8 flex items-center justify-center bg-black/60 border border-white/5 rounded text-white transition-all select-none ${(isMaxed || pointsLeft <= 0) ? 'opacity-20 cursor-not-allowed' : 'hover:bg-green-900/50 cursor-pointer'}`}
+                      >
+                        +
+                      </div>
+
                     </div>
                     {/* ADICIONADO: Exibição do MODIFICADOR aqui */}
                     <div className="mt-3 text-[10px] text-amber-200/40 font-bold uppercase flex items-center justify-between w-full px-2">
@@ -561,7 +622,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
             </div>
         </div>
 
-        <div className="mt-auto w-full flex justify-between items-center border-t-2 border-amber-900/30 p-6 bg-black/60">
+        <div className="mt-auto w-full flex justify-between items-center border-t-2 border-amber-900/30 p-6 bg-black/60 flex-shrink-0">
            {error && <p className="text-red-400 text-xs animate-bounce mr-4 absolute -top-8 left-1/2 -translate-x-1/2 bg-black px-3 py-1 rounded border border-red-500">{error}</p>}
            <button onClick={() => setStep(2)} className="text-amber-500/50 hover:text-amber-200 font-bold uppercase tracking-[0.3em] text-xs">❮ Voltar</button>
            <MetalButton onClick={handleFinalSubmit} disabled={isChecking || pointsLeft < 0} variant="amber" className="px-12 py-4 text-sm">

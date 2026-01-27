@@ -1,10 +1,10 @@
-// @ts-nocheck
 import React, { useState, useEffect, Suspense, useRef } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { Environment, OrbitControls, ContactShadows, Stars, Sparkles } from '@react-three/drei';
 import { DiceModel } from './DiceModel'; 
 import * as THREE from 'three';
 import { Howl } from 'howler';
+import { Dice5, Eye, EyeOff } from 'lucide-react'; // Importar ícones
 
 // --- SONS ---
 const spinSound = new Howl({ src: ['/sfx/dado.mp3'], volume: 0.4, rate: 1.5 });
@@ -97,7 +97,7 @@ const SpinningDiceCinematic = ({ isRolling, finalResult, showImpactVFX }: { isRo
 };
 
 export interface RollBonus {
-  id: string; name: string; value: string; type: 'flat'|'dice'; active: boolean; icon: string;
+  id: string; name: string; value: number; type: 'flat'|'dice'; active: boolean; icon: string;
 }
 
 interface BaldursDiceRollerProps {
@@ -110,7 +110,7 @@ interface BaldursDiceRollerProps {
   proficiency: number;
   rollType?: 'normal' | 'advantage' | 'disadvantage';
   extraBonuses?: RollBonus[];
-  onComplete: (total: number, isSuccess: boolean, isCrit: boolean) => void;
+  onComplete: (total: number, isSuccess: boolean, isCrit: boolean, isSecret: boolean) => void;
 }
 
 const BaldursDiceRoller: React.FC<BaldursDiceRollerProps> = ({ 
@@ -119,12 +119,14 @@ const BaldursDiceRoller: React.FC<BaldursDiceRollerProps> = ({
   const [isRolling, setIsRolling] = useState(false);
   const [result, setResult] = useState<number | null>(null);
   const [showTotal, setShowTotal] = useState(false);
+  const [isSecret, setIsSecret] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
         setResult(null);
         setShowTotal(false);
         setIsRolling(false);
+        setIsSecret(false); // Resetar ao abrir
     }
   }, [isOpen]);
 
@@ -169,6 +171,16 @@ const BaldursDiceRoller: React.FC<BaldursDiceRollerProps> = ({
 
       <div className="relative w-full h-full max-w-4xl flex flex-col items-center justify-center">
         
+        {/* Toggle de GM Roll (Secreto) */}
+        <button 
+            onClick={(e) => { e.stopPropagation(); setIsSecret(!isSecret); }}
+            className={`absolute top-8 right-24 z-[1000] p-3 rounded-full border transition-all flex items-center gap-2 ${isSecret ? 'bg-purple-900/80 border-purple-500 text-purple-200 shadow-[0_0_15px_rgba(168,85,247,0.5)]' : 'bg-white/5 border-white/10 text-gray-400 hover:text-white hover:bg-white/10'}`}
+            title={isSecret ? "Rolagem Secreta (Só o Mestre vê)" : "Rolagem Pública"}
+        >
+            {isSecret ? <EyeOff size={20} /> : <Eye size={20} />}
+            <span className="text-xs font-bold uppercase tracking-wider">{isSecret ? "Secreto" : "Público"}</span>
+        </button>
+
         {/* CABEÇALHO */}
         <div className="absolute top-16 text-center z-20 pointer-events-none space-y-2">
           <h2 className="text-5xl font-serif text-transparent bg-clip-text bg-gradient-to-b from-yellow-200 to-yellow-600 tracking-widest uppercase drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)] filter">
@@ -242,7 +254,7 @@ const BaldursDiceRoller: React.FC<BaldursDiceRollerProps> = ({
                         {/* Número Gigante do Total */}
                         <div className="flex items-center justify-center mb-4 relative">
                             <span className="text-7xl font-black text-transparent bg-clip-text bg-gradient-to-b from-white via-yellow-100 to-yellow-600 drop-shadow-[0_5px_5px_rgba(0,0,0,0.8)]" style={{ fontFamily: '"Cinzel Decorative", serif' }}>
-                                {result + baseModifier + proficiency}
+                                {(result || 0) + baseModifier + proficiency}
                             </span>
                             <div className="absolute inset-0 bg-yellow-500/20 blur-[30px] rounded-full -z-10"></div>
                         </div>
@@ -253,7 +265,7 @@ const BaldursDiceRoller: React.FC<BaldursDiceRollerProps> = ({
                             {/* DADO */}
                             <div className="flex flex-col items-center gap-1 group cursor-help transition-transform hover:scale-110">
                                 <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-xl shadow-lg group-hover:border-white/30 transition-colors">
-                                    🎲
+                                    <Dice5 size={18} />
                                 </div>
                                 <span className="text-gray-400 font-bold">{result}</span>
                             </div>
@@ -290,7 +302,7 @@ const BaldursDiceRoller: React.FC<BaldursDiceRollerProps> = ({
                       </button>
                       
                       <button 
-                        onClick={() => onComplete((result || 0) + baseModifier + proficiency, (result || 0) + baseModifier + proficiency >= difficultyClass, result === 20)} 
+                        onClick={() => onComplete((result || 0) + baseModifier + proficiency, (result || 0) + baseModifier + proficiency >= difficultyClass, result === 20, isSecret)} 
                         className="flex-[1.5] py-3 bg-gradient-to-r from-yellow-700 via-yellow-600 to-yellow-800 hover:brightness-110 text-white font-bold text-xs uppercase tracking-[0.2em] rounded-lg shadow-[0_0_20px_rgba(234,179,8,0.3)] border border-yellow-400/30 active:scale-95 transition-all"
                       >
                         Aceitar

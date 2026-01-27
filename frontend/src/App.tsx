@@ -5,13 +5,11 @@ import CanvasMap from './components/CanvasMap';
 import SidebarDM, { InitiativeItem } from './components/SidebarDM';
 import SidebarPlayer from './components/SidebarPlayer';
 import LoginScreen from './components/LoginScreen'; 
-import Lobby from './components/Lobby'; // <--- IMPORTANTE: Importando o Lobby
+import Lobby from './components/Lobby'; 
 import { ChatMessage } from './components/Chat';
 import EditEntityModal from './components/EditEntityModal';
 import MonsterCreatorModal from './components/MonsterCreatorModal';
 import BaldursDiceRoller, { RollBonus } from './components/BaldursDiceRoller'; 
-
-// --- IMPORTANDO AS REGRAS DE JOGO ---
 import { getLevelFromXP } from './utils/gameRules';
 
 const ROOM_ID = 'mesa-do-victor'; 
@@ -34,7 +32,7 @@ export interface Item {
   stats?: {
     damage?: string;
     armorClass?: number;
-    ac?: number; // Compatibilidade
+    ac?: number; 
     properties?: string[];
   };
 }
@@ -62,7 +60,8 @@ export interface Entity {
   xp?: number;
   level?: number;
   inventory?: Item[]; 
-  race?: string; // Adicionado para compatibilidade com Lobby
+  race?: string; 
+  visible?: boolean; 
 }
 
 export interface MonsterPreset {
@@ -113,7 +112,6 @@ function App() {
   const [role, setRole] = useState<'DM' | 'PLAYER'>('PLAYER'); 
   const [playerName, setPlayerName] = useState('');
   
-  // --- NOVO ESTADO: CONTROLE DE FASE (LOBBY vs GAME) ---
   const [gamePhase, setGamePhase] = useState<'LOBBY' | 'GAME'>('LOBBY');
 
   const [entities, setEntities] = useState<Entity[]>([]);
@@ -156,6 +154,11 @@ function App() {
       rollType: 'normal' as 'normal' | 'advantage' | 'disadvantage'
   });
 
+  // --- ESTADOS DE AUDIO ---
+  const [currentTrack, setCurrentTrack] = useState<string | null>(null);
+  const [audioVolume, setAudioVolume] = useState(0.5);
+  const activeMusicRef = useRef<Howl | null>(null);
+
   useEffect(() => {
     const handleResize = () => setWindowSize({ w: window.innerWidth, h: window.innerHeight });
     window.addEventListener('resize', handleResize);
@@ -164,20 +167,67 @@ function App() {
 
   const audioRefs = useRef({
     dado: new Howl({ src: ['/sfx/dado.mp3'], volume: 0.5, html5: true }),
-    atmosfera: new Howl({ src: ['/sfx/suspense.mp3'], volume: 0.4, html5: true, preload: true, loop: true }),
-    levelup: new Howl({ src: ['/sfx/levelup.mp3'], volume: 0.6, html5: true })
+    levelup: new Howl({ src: ['/sfx/levelup.mp3'], volume: 0.6, html5: true }),
+    sword: new Howl({ src: ['/sfx/sword.mp3'], volume: 0.5, html5: true }),
+    magic: new Howl({ src: ['/sfx/magic.mp3'], volume: 0.5, html5: true }),
+    explosion: new Howl({ src: ['/sfx/explosion.mp3'], volume: 0.5, html5: true }),
+    roar: new Howl({ src: ['/sfx/roar.mp3'], volume: 0.5, html5: true }),
   });
 
-  const playSound = useCallback((type: 'dado' | 'atmosfera' | 'levelup') => {
-    if (Howler.ctx && Howler.ctx.state !== 'running') Howler.ctx.resume();
-    const sound = audioRefs.current[type]; 
-    if (!sound) { console.warn(`⚠️ Aviso: O som '${type}' não foi encontrado.`); return; }
-    if (type === 'atmosfera') {
-      if (sound.playing()) sound.stop(); else { Howler.stop(); sound.play(); }
-    } else {
+  // Função para Tocar Música (Global)
+  const handlePlayMusic = useCallback((trackId: string, emit: boolean = true) => {
+      if (activeMusicRef.current) {
+          activeMusicRef.current.stop();
+          activeMusicRef.current.unload();
+      }
+      const trackPath = `/music/${trackId}.mp3`;
+      const sound = new Howl({
+          src: [trackPath],
+          html5: true,
+          loop: true,
+          volume: audioVolume
+      });
+      
       sound.play();
-    }
+      activeMusicRef.current = sound;
+      setCurrentTrack(trackId);
+
+      if (emit) {
+          socket.emit('playMusic', { trackId, roomId: ROOM_ID });
+      }
+  }, [audioVolume]);
+
+  const handleStopMusic = useCallback((emit: boolean = true) => {
+      if (activeMusicRef.current) {
+          activeMusicRef.current.stop();
+          activeMusicRef.current.unload();
+          activeMusicRef.current = null;
+      }
+      setCurrentTrack(null);
+      if (emit) socket.emit('stopMusic', { roomId: ROOM_ID });
   }, []);
+
+  const handlePlaySFX = useCallback((sfxId: string, emit: boolean = true) => {
+      // @ts-ignore
+      const sound = audioRefs.current[sfxId];
+      if (sound) {
+          sound.volume(audioVolume);
+          sound.play();
+      }
+      if (emit) socket.emit('playSFX', { sfxId, roomId: ROOM_ID });
+  }, [audioVolume]);
+
+  const playSound = useCallback((type: 'dado' | 'levelup') => {
+    handlePlaySFX(type, false); 
+  }, [handlePlaySFX]);
+
+  useEffect(() => {
+      if (activeMusicRef.current) {
+          activeMusicRef.current.volume(audioVolume);
+      }
+      Howler.volume(audioVolume);
+  }, [audioVolume]);
+
 
   const addLog = useCallback((text: string, type: 'info' | 'roll' | 'damage' | 'chat' = 'info', sender: string = 'Sistema', shouldEmit: boolean = true) => {
     const newMessage: ChatMessage = { id: Date.now().toString() + Math.random(), sender, text, type, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) };
@@ -217,6 +267,7 @@ function App() {
       if (gameState.chatHistory) setChatMessages(gameState.chatHistory);
       if (gameState.customMonsters) setCustomMonsters(gameState.customMonsters);
       if (gameState.globalBrightness !== undefined) setGlobalBrightness(gameState.globalBrightness);
+      if (gameState.currentTrack) handlePlayMusic(gameState.currentTrack, false);
     });
 
     socket.on('notification', (data) => { alert(data.message); });
@@ -228,6 +279,10 @@ function App() {
             return [...prev, data.message];
         });
     });
+
+    socket.on('playMusic', (data) => handlePlayMusic(data.trackId, false));
+    socket.on('stopMusic', () => handleStopMusic(false));
+    socket.on('playSFX', (data) => handlePlaySFX(data.sfxId, false));
 
     socket.on('entityPositionUpdated', (data) => setEntities(prev => prev.map(ent => ent.id === data.entityId ? { ...ent, x: data.x, y: data.y } : ent)));
     socket.on('entityStatusUpdated', (data) => setEntities(prev => prev.map(ent => ent.id === data.entityId ? { ...ent, ...data.updates } : ent)));
@@ -251,7 +306,7 @@ function App() {
 
     socket.on('fogGridSynced', (data) => setFogGrid(data.grid));
     socket.on('initiativeUpdated', (data) => { setInitiativeList(data.list); setActiveTurnId(data.activeTurnId); });
-    socket.on('triggerAudio', (data) => { if (data.trackId === 'suspense') playSound('atmosfera'); });
+    socket.on('triggerAudio', (data) => { if (data.trackId === 'suspense') handlePlayMusic('suspense', false); });
     
     socket.on('mapStateUpdated', (data) => {
       if (role === 'PLAYER') {
@@ -281,7 +336,7 @@ function App() {
                         rollType: 'normal'
                     });
                     setShowBgDice(true);
-                    playSound('atmosfera');
+                    handlePlayMusic('suspense', false); 
                     addLog(`⚠️ O Mestre exigiu um teste de **${data.skillName}** (CD ${data.dc})!`, 'info');
                 }
                 return currentEntities;
@@ -306,8 +361,23 @@ function App() {
       socket.off('mapStateUpdated'); 
       socket.off('globalBrightnessUpdated');
       socket.off('dmRequestRoll');
+      socket.off('playMusic');
+      socket.off('stopMusic');
+      socket.off('playSFX');
     };
-  }, [playSound, isLoggedIn, addLog, role, statusSelectionId, playerName]); 
+  }, [isLoggedIn, addLog, role, statusSelectionId, playerName, handlePlayMusic, handleStopMusic, handlePlaySFX, playSound]); 
+
+  // --- NOVA FUNÇÃO DE RESETAR CÂMERA ---
+  const handleResetView = () => {
+      setMapOffset({ x: 0, y: 0 });
+      setMapScale(1);
+      if (role === 'DM') {
+          socket.emit('syncMapState', { roomId: ROOM_ID, offset: { x: 0, y: 0 }, scale: 1 });
+          addLog("🎥 O Mestre recentralizou a câmera de todos.", 'info');
+      } else {
+          addLog("🎥 Câmera recentralizada.", 'info');
+      }
+  };
 
   const handleMapSync = (offset: {x: number, y: number}, scale: number) => {
     setMapOffset(offset);
@@ -329,10 +399,38 @@ function App() {
       setShowBgDice(true);
   };
 
-  const handleDiceComplete = (total: number, isSuccess: boolean, isCritical: boolean) => {
+  // --- GM ROLL IMPLEMENTADO (ATUALIZADO) ---
+  const handleDiceComplete = (total: number, isSuccess: boolean, isCritical: boolean, isSecret: boolean) => {
+      const senderName = role === 'DM' ? 'Mestre' : playerName;
       const resultMsg = isCritical ? (total >= 20 ? "CRÍTICO! ⚔️" : "FALHA CRÍTICA! 💀") : (isSuccess ? "SUCESSO! ✅" : "FALHA ❌");
-      addLog(`🎲 **${role === 'DM' ? 'Mestre' : playerName}** rolou ${diceContext.title}: **${total}** (${resultMsg})`, 'roll', role === 'DM' ? 'Mestre' : playerName);
-      socket.emit('rollDice', { sides: 20, result: total, roomId: ROOM_ID, user: playerName || 'DM' });
+      
+      if (isSecret) {
+          // Mensagem para Mestre
+          const secretText = `👁️ (Secreto) **${senderName}** rolou ${diceContext.title}: **${total}** (${resultMsg})`;
+          // Mensagem para Players
+          const publicText = `🎲 **${senderName}** rolou dados misteriosamente...`;
+
+          const secretMessage: ChatMessage = {
+              id: Date.now().toString(),
+              sender: senderName,
+              text: role === 'DM' ? secretText : publicText,
+              type: 'roll',
+              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              isSecret: true,
+              secretContent: secretText
+          };
+
+          // Adiciona localmente
+          setChatMessages(prev => [...prev, secretMessage]);
+          
+          // Envia para o servidor (Chat.tsx vai filtrar quem vê o que)
+          socket.emit('sendMessage', { roomId: ROOM_ID, message: secretMessage });
+      } else {
+          // Rolagem Normal
+          addLog(`🎲 **${senderName}** rolou ${diceContext.title}: **${total}** (${resultMsg})`, 'roll', senderName);
+          socket.emit('rollDice', { sides: 20, result: total, roomId: ROOM_ID, user: senderName });
+      }
+      
       setTimeout(() => setShowBgDice(false), 2000);
   };
 
@@ -381,10 +479,21 @@ function App() {
         const total = sum + mod;
         const rollString = `[${rolls.join(', ')}]` + (mod > 0 ? ` + ${mod}` : '');
         addLog(`🎲 Rolou ${count}d${sides}${mod ? '+'+mod : ''}: ${rollString} = **${total}**`, 'roll', senderName);
-        playSound('dado');
+        handlePlaySFX('dado', true);
       } else {
         addLog(text, 'chat', senderName);
       }
+  };
+
+  // --- NOVA FUNÇÃO DE DAR ITEM (INVENTÁRIO) ---
+  const handleGiveItem = (targetId: number, item: any) => {
+      setEntities(prev => prev.map(ent => {
+          if (ent.id !== targetId) return ent;
+          const newInventory = [...(ent.inventory || []), item];
+          socket.emit('updateEntityStatus', { entityId: targetId, updates: { inventory: newInventory }, roomId: ROOM_ID });
+          addLog(`🎁 ${ent.name} recebeu ${item.quantity}x ${item.name}!`, 'info');
+          return { ...ent, inventory: newInventory };
+      }));
   };
 
   const handleUpdatePosition = (id: number, newX: number, newY: number) => {
@@ -416,6 +525,21 @@ function App() {
         return { ...ent, conditions: newConditions };
     }));
   };
+
+  const handleToggleVisibility = (id: number) => {
+    setEntities(prev => prev.map(ent => {
+        if (ent.id !== id) return ent;
+        const newVisible = ent.visible === undefined ? false : !ent.visible; 
+        
+        if (role === 'DM') {
+             addLog(newVisible ? `👁️ ${ent.name} revelou-se!` : `👻 ${ent.name} desapareceu nas sombras.`, 'info', 'Sistema', false); 
+        }
+        
+        socket.emit('updateEntityStatus', { entityId: id, updates: { visible: newVisible }, roomId: ROOM_ID });
+        return { ...ent, visible: newVisible };
+    }));
+  };
+
   const handleEditEntity = (id: number, updates: Partial<Entity>) => {
     setEntities(prev => prev.map(ent => ent.id === id ? { ...ent, ...updates } : ent));
     socket.emit('updateEntityStatus', { entityId: id, updates, roomId: ROOM_ID });
@@ -437,8 +561,9 @@ function App() {
       classType: customStats?.classType || "NPC", size: customStats?.size || 2,
       xp: customStats?.xp || 0,
       level: customStats?.level || 1,
-      inventory: customStats?.inventory || [], // GARANTINDO INICIALIZAÇÃO
-      race: customStats?.race || 'Humano' // GARANTINDO INICIALIZAÇÃO
+      inventory: customStats?.inventory || [], 
+      race: customStats?.race || 'Humano',
+      visible: true 
     };
     setEntities(prev => [...prev, newEntity]);
     socket.emit('createEntity', { entity: newEntity, roomId: ROOM_ID });
@@ -467,7 +592,7 @@ function App() {
   };
   
   const handleSaveGame = () => {
-    socket.emit('saveGame', { roomId: ROOM_ID, entities, fogGrid, currentMap, initiativeList, activeTurnId, chatMessages, customMonsters, globalBrightness });
+    socket.emit('saveGame', { roomId: ROOM_ID, entities, fogGrid, currentMap, initiativeList, activeTurnId, chatMessages, customMonsters, globalBrightness, currentTrack });
     addLog("O Mestre salvou o estado da mesa no servidor.", 'info');
   };
 
@@ -491,7 +616,7 @@ function App() {
     setActiveTurnId(newActive);
     socket.emit('updateInitiative', { list: newList, activeTurnId: newActive, roomId: ROOM_ID });
     addLog(`${initModalEntity.name} rolou Iniciativa: ${val}`, 'info');
-    playSound('dado');
+    handlePlaySFX('dado', true);
     setInitModalEntity(null);
   };
 
@@ -522,7 +647,7 @@ function App() {
     setRole(selectedRole); 
     setPlayerName(name); 
     setIsLoggedIn(true); 
-    setGamePhase('LOBBY'); // Começa sempre no Lobby
+    setGamePhase('LOBBY'); 
 
     socket.emit('joinRoom', ROOM_ID);
     if (selectedRole === 'PLAYER' && charData) {
@@ -548,8 +673,9 @@ function App() {
                     size: 1,
                     xp: 0,
                     level: 1,
-                    inventory: [], // Garante array vazio
-                    race: 'Humano' 
+                    inventory: [], 
+                    race: 'Humano',
+                    visible: true
                 };
                 setEntities(prev => [...prev, newEntity]);
                 socket.emit('createEntity', { entity: newEntity, roomId: ROOM_ID });
@@ -629,8 +755,6 @@ function App() {
             <h3 className="text-base font-black tracking-[0.15em] text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-blue-400">STATUS</h3>
             <button onClick={() => setStatusSelectionId(null)} className="text-cyan-500 hover:text-white transition-colors text-base font-bold">✕</button>
           </div>
-          {/* ... (Resto do modal de status - abreviado para caber, mas no código final use o que você já tinha) ... */}
-          {/* Para garantir que não falte nada, vou colar o conteúdo completo do modal de status aqui embaixo */}
           <div className="flex gap-3 mb-4">
             <div onClick={() => role === 'DM' && setEditingEntity(selectedStatusEntity)} className={`w-16 h-16 rounded-lg border-2 border-cyan-400 overflow-hidden shrink-0 relative shadow-lg shadow-cyan-500/20 group ${role === 'DM' ? 'cursor-pointer' : ''}`}>
               {selectedStatusEntity.image ? (
@@ -762,6 +886,18 @@ function App() {
               globalBrightness={globalBrightness}
               onSetGlobalBrightness={handleUpdateGlobalBrightness}
               onRequestRoll={handleDmRequestRoll} 
+              onToggleVisibility={handleToggleVisibility} 
+              // PROPS DE AUDIO
+              currentTrack={currentTrack}
+              onPlayMusic={handlePlayMusic}
+              onStopMusic={handleStopMusic}
+              onPlaySFX={handlePlaySFX}
+              audioVolume={audioVolume}
+              onSetAudioVolume={setAudioVolume}
+              // NOVA PROP: RESETAR CÂMERA
+              onResetView={handleResetView}
+              // NOVA PROP: DAR ITEM
+              onGiveItem={handleGiveItem}
             /> 
           : <SidebarPlayer 
               entities={entities} 
