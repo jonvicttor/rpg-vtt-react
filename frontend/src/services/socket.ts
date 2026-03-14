@@ -1,13 +1,15 @@
 import { io } from 'socket.io-client';
 
-// Se estiver no PC dele (localhost), usa a porta 4000.
-// Se estiver na internet, usa a URL que o Render.com te der.
+// Se estiveres no teu PC rodando local, ele usa localhost.
+// Se estiveres na Vercel (internet), ele usa o teu link do Render.
 const SOCKET_URL = window.location.hostname === 'localhost'
   ? 'http://localhost:4000'
-  : 'https://seu-vtt-backend.onrender.com'; // Você vai trocar isso depois
+  : 'https://nexus-rpg-dl3i.onrender.com';
 
 const socket = io(SOCKET_URL, {
   transports: ['websocket'],
+  reconnection: true,
+  reconnectionAttempts: 5
 });
 
 export default socket;
