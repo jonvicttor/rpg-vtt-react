@@ -8,7 +8,7 @@ import Inventory from './Inventory';
 import { mapEntityStatsToAttributes } from '../utils/attributeMapping';
 import { 
   Shield, Zap, Skull, Backpack, Dna, Flame, Heart, Scroll 
-} from 'lucide-react'; // <--- Sword removido daqui
+} from 'lucide-react';
 
 // --- TIPAGEM ---
 export interface InitiativeItem {
@@ -40,6 +40,7 @@ const SPELL_SLOTS_BY_LEVEL: Record<number, number[]> = {
 interface SidebarPlayerProps {
   entities: Entity[];
   myCharacterName: string; 
+  myCharacterId: number;
   initiativeList: InitiativeItem[];
   activeTurnId: number | null;
   chatMessages: ChatMessage[];
@@ -47,10 +48,13 @@ interface SidebarPlayerProps {
   onRollAttribute: (charName: string, attrName: string, mod: number) => void;
   onUpdateCharacter?: (id: number, updates: Partial<Entity>) => void;
   onSelectEntity?: (entity: Entity) => void;
+  
+  // NOVO: APLICAR DANO VIA CHAT
+  onApplyDamageFromChat: (targetId: number, damageExpression: string) => void;
 }
 
 const SidebarPlayer: React.FC<SidebarPlayerProps> = ({ 
-  entities, myCharacterName, initiativeList, activeTurnId, chatMessages, onSendMessage, onRollAttribute, onUpdateCharacter, onSelectEntity 
+  entities, myCharacterName, myCharacterId, initiativeList, activeTurnId, chatMessages, onSendMessage, onRollAttribute, onUpdateCharacter, onSelectEntity, onApplyDamageFromChat
 }) => {
   const [activeTab, setActiveTab] = useState<'char' | 'inv' | 'spells' | 'chat' | 'journal'>('char');
   const [showLevelUpModal, setShowLevelUpModal] = useState(false);
@@ -62,8 +66,7 @@ const SidebarPlayer: React.FC<SidebarPlayerProps> = ({
 
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  // Encontra o personagem do jogador
-  const myCharacter = entities.find(e => e.type === 'player' && e.name === myCharacterName); 
+  const myCharacter = entities.find(e => e.id === myCharacterId) || entities.find(e => e.type === 'player' && e.name === myCharacterName); 
   
   const currentXP = myCharacter?.xp || 0;
   const calculatedLevel = getLevelFromXP(currentXP);
@@ -109,7 +112,6 @@ const SidebarPlayer: React.FC<SidebarPlayerProps> = ({
       if (!myCharacter || !onUpdateCharacter) return;
       let newInv = [...inventory];
       
-      // Se for poção, "equipar" significa usar/beber
       if (item.type === 'potion') {
           onSendMessage(`🧪 **${myCharacter.name}** usou **${item.name}**.`);
           if (item.quantity > 1) {
@@ -257,10 +259,11 @@ const SidebarPlayer: React.FC<SidebarPlayerProps> = ({
                     </div>
                 )}
 
-                {/* 2. ABA INVENTÁRIO (NOVA) */}
+                {/* 2. ABA INVENTÁRIO (ATUALIZADA COM OWNER ID) */}
                 {activeTab === 'inv' && myCharacter && (
                     <Inventory 
                         items={inventory} 
+                        ownerId={myCharacter.id} // <--- PASSANDO O ID CORRETAMENTE
                         onEquip={handleEquipItem}
                         onDrop={handleDropItem}
                     />
@@ -293,7 +296,16 @@ const SidebarPlayer: React.FC<SidebarPlayerProps> = ({
                     </div>
                 )}
 
-                {activeTab === 'chat' && <div className="h-full flex flex-col"><Chat messages={chatMessages} onSendMessage={onSendMessage} role="PLAYER"/></div>}
+                {activeTab === 'chat' && (
+                    <div className="h-full flex flex-col">
+                        <Chat 
+                            messages={chatMessages} 
+                            onSendMessage={onSendMessage} 
+                            role="PLAYER" 
+                            onApplyDamage={onApplyDamageFromChat} // <--- AQUI REPASA
+                        />
+                    </div>
+                )}
                 {activeTab === 'journal' && <div className="p-4"><textarea className="w-full h-64 bg-black/20 border border-white/10 rounded p-3 text-sm text-gray-300 font-sans" placeholder="Diário..."></textarea></div>}
             </div>
         </div>

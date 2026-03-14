@@ -17,6 +17,7 @@ const EditEntityModal: React.FC<EditEntityModalProps> = ({ entity, onSave, onClo
     ac: entity.ac,
     size: entity.size || 1,
     image: entity.image || '',
+    visionRadius: entity.visionRadius || 0, // <--- ADICIONADO AQUI NO ESTADO INICIAL
     stats: entity.stats || { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 },
     inventory: entity.inventory || [] 
   });
@@ -117,81 +118,96 @@ const EditEntityModal: React.FC<EditEntityModalProps> = ({ entity, onSave, onClo
         {activeTab === 'stats' ? (
             <form id="edit-form" onSubmit={handleSubmit} className="overflow-y-auto custom-scrollbar pr-2">
                 <div className="grid grid-cols-2 gap-4 mb-4">
-                <div className="col-span-2">
-                    <label className="block text-[10px] text-gray-400 uppercase mb-1">Nome</label>
-                    <input name="name" value={formData.name} onChange={handleChange} className="w-full bg-black/40 border border-white/10 rounded px-2 py-1 text-sm text-white outline-none focus:border-blue-500" />
-                </div>
-                <div>
-                    <label className="block text-[10px] text-gray-400 uppercase mb-1">HP Atual</label>
-                    <input type="number" name="hp" value={formData.hp} onChange={handleChange} className="w-full bg-black/40 border border-white/10 rounded px-2 py-1 text-sm text-white outline-none focus:border-blue-500" />
-                </div>
-                <div>
-                    <label className="block text-[10px] text-gray-400 uppercase mb-1">HP Máximo</label>
-                    <input type="number" name="maxHp" value={formData.maxHp} onChange={handleChange} className="w-full bg-black/40 border border-white/10 rounded px-2 py-1 text-sm text-white outline-none focus:border-blue-500" />
-                </div>
+                  <div className="col-span-2">
+                      <label className="block text-[10px] text-gray-400 uppercase mb-1">Nome</label>
+                      <input name="name" value={formData.name} onChange={handleChange} className="w-full bg-black/40 border border-white/10 rounded px-2 py-1 text-sm text-white outline-none focus:border-blue-500" />
+                  </div>
+                  <div>
+                      <label className="block text-[10px] text-gray-400 uppercase mb-1">HP Atual</label>
+                      <input type="number" name="hp" value={formData.hp} onChange={handleChange} className="w-full bg-black/40 border border-white/10 rounded px-2 py-1 text-sm text-white outline-none focus:border-blue-500" />
+                  </div>
+                  <div>
+                      <label className="block text-[10px] text-gray-400 uppercase mb-1">HP Máximo</label>
+                      <input type="number" name="maxHp" value={formData.maxHp} onChange={handleChange} className="w-full bg-black/40 border border-white/10 rounded px-2 py-1 text-sm text-white outline-none focus:border-blue-500" />
+                  </div>
+                  
+                  {/* --- ADICIONADO CAMPO DE RAIO DE VISÃO AQUI --- */}
+                  <div className="col-span-2">
+                      <label className="block text-[10px] text-yellow-400 uppercase mb-1 font-bold">Raio de Visão (Quadrados)</label>
+                      <div className="flex items-center gap-2">
+                          <input 
+                              type="number" 
+                              name="visionRadius" 
+                              value={formData.visionRadius} 
+                              onChange={handleChange} 
+                              className="w-24 bg-black/40 border border-yellow-500/50 rounded px-2 py-1 text-sm text-yellow-400 outline-none focus:border-yellow-400" 
+                          />
+                          <span className="text-[9px] text-gray-500 italic">Ex: 0 para cego/sem tocha, 9 para visão normal.</span>
+                      </div>
+                  </div>
                 </div>
 
                 <div className="mb-4">
-                <label className="block text-[10px] text-gray-400 uppercase mb-1 font-bold">Tamanho da Criatura (Grid)</label>
-                <select 
-                    name="size" 
-                    value={formData.size} 
-                    onChange={handleChange}
-                    className="w-full bg-black/40 border border-white/10 rounded px-2 py-1 text-sm text-white outline-none focus:border-blue-500 cursor-pointer"
-                >
-                    <option value="0.5">Miúdo (1.5x1.5)</option>
-                    <option value="1">Médio (2x2)</option>
-                    <option value="2">Grande (3x3)</option>
-                    <option value="3">Enorme (4x4)</option>
-                    <option value="4">Imenso (5x5)</option>
-                </select>
+                  <label className="block text-[10px] text-gray-400 uppercase mb-1 font-bold">Tamanho da Criatura (Grid)</label>
+                  <select 
+                      name="size" 
+                      value={formData.size} 
+                      onChange={handleChange}
+                      className="w-full bg-black/40 border border-white/10 rounded px-2 py-1 text-sm text-white outline-none focus:border-blue-500 cursor-pointer"
+                  >
+                      <option value="0.5">Miúdo (1.5x1.5)</option>
+                      <option value="1">Médio (2x2)</option>
+                      <option value="2">Grande (3x3)</option>
+                      <option value="3">Enorme (4x4)</option>
+                      <option value="4">Imenso (5x5)</option>
+                  </select>
                 </div>
 
                 <div className="mb-4">
-                <label className="block text-[10px] text-rpgAccent uppercase mb-2 font-bold tracking-widest">Atributos Base</label>
-                <div className="grid grid-cols-3 gap-2 bg-black/20 p-3 rounded border border-white/5">
-                    {Object.entries(formData.stats).map(([stat, value]) => (
-                    <div key={stat} className="flex flex-col">
-                        <label className="text-[9px] text-gray-500 uppercase text-center">{stat}</label>
-                        <input 
-                        type="number" 
-                        name={`stat-${stat}`} 
-                        value={value} 
-                        onChange={handleChange} 
-                        className="bg-black/60 border border-white/10 rounded text-center text-xs py-1 text-blue-400 focus:border-blue-500 outline-none"
-                        />
-                    </div>
-                    ))}
-                </div>
+                  <label className="block text-[10px] text-rpgAccent uppercase mb-2 font-bold tracking-widest">Atributos Base</label>
+                  <div className="grid grid-cols-3 gap-2 bg-black/20 p-3 rounded border border-white/5">
+                      {Object.entries(formData.stats).map(([stat, value]) => (
+                      <div key={stat} className="flex flex-col">
+                          <label className="text-[9px] text-gray-500 uppercase text-center">{stat}</label>
+                          <input 
+                          type="number" 
+                          name={`stat-${stat}`} 
+                          value={value} 
+                          onChange={handleChange} 
+                          className="bg-black/60 border border-white/10 rounded text-center text-xs py-1 text-blue-400 focus:border-blue-500 outline-none"
+                          />
+                      </div>
+                      ))}
+                  </div>
                 </div>
 
                 <div className="mb-6">
-                <label className="block text-[10px] text-gray-400 uppercase mb-2 font-bold">Imagem (Token)</label>
-                <div 
-                    className="w-full h-20 border-2 border-dashed border-white/10 rounded bg-black/40 flex items-center justify-center cursor-pointer hover:border-blue-500 transition-all overflow-hidden group relative"
-                    onClick={() => fileInputRef.current?.click()}
-                >
-                    <input 
-                    type="file" 
-                    ref={fileInputRef} 
-                    className="hidden" 
-                    accept="image/*" 
-                    onChange={handleImageUpload} 
-                    />
-                    {formData.image ? (
-                    <>
-                        <img src={formData.image} alt="Preview" className="h-full w-auto object-contain transition-opacity group-hover:opacity-50" />
-                        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                        <span className="text-[10px] text-white font-bold bg-black/60 px-2 py-1 rounded">TROCAR IMAGEM</span>
-                        </div>
-                    </>
-                    ) : (
-                    <div className="flex flex-col items-center gap-1 text-gray-500 group-hover:text-blue-400">
-                        <span className="text-xl">📷</span>
-                        <span className="text-[9px] uppercase font-bold">Clique para Upload</span>
-                    </div>
-                    )}
-                </div>
+                  <label className="block text-[10px] text-gray-400 uppercase mb-2 font-bold">Imagem (Token)</label>
+                  <div 
+                      className="w-full h-20 border-2 border-dashed border-white/10 rounded bg-black/40 flex items-center justify-center cursor-pointer hover:border-blue-500 transition-all overflow-hidden group relative"
+                      onClick={() => fileInputRef.current?.click()}
+                  >
+                      <input 
+                      type="file" 
+                      ref={fileInputRef} 
+                      className="hidden" 
+                      accept="image/*" 
+                      onChange={handleImageUpload} 
+                      />
+                      {formData.image ? (
+                      <>
+                          <img src={formData.image} alt="Preview" className="h-full w-auto object-contain transition-opacity group-hover:opacity-50" />
+                          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                          <span className="text-[10px] text-white font-bold bg-black/60 px-2 py-1 rounded">TROCAR IMAGEM</span>
+                          </div>
+                      </>
+                      ) : (
+                      <div className="flex flex-col items-center gap-1 text-gray-500 group-hover:text-blue-400">
+                          <span className="text-xl">📷</span>
+                          <span className="text-[9px] uppercase font-bold">Clique para Upload</span>
+                      </div>
+                      )}
+                  </div>
                 </div>
             </form>
         ) : (
@@ -213,7 +229,6 @@ const EditEntityModal: React.FC<EditEntityModalProps> = ({ entity, onSave, onClo
                             <div key={idx} className="flex justify-between items-center bg-black/20 p-2 rounded border border-white/5">
                                 <div className="flex items-center gap-2">
                                     <div className="w-6 h-6 bg-black rounded border border-white/10 flex items-center justify-center overflow-hidden">
-                                        {/* CORREÇÃO AQUI: Adicionado alt={item.name} */}
                                         {item.image ? <img src={item.image} alt={item.name} className="w-full h-full object-cover"/> : <span className="text-[10px]">📦</span>}
                                     </div>
                                     <div>

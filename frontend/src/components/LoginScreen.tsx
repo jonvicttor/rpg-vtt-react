@@ -283,7 +283,8 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
              </h1>
              <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 w-full h-2 bg-gradient-to-r from-transparent via-amber-600/80 to-transparent blur-[3px] border-t border-amber-300/30"></div>
           </div>
-          <p className="text-amber-200/70 tracking-[1em] text-sm md:text-xl font-bold uppercase mt-20 drop-shadow-lg border-b-2 border-amber-900/30 pb-4 inline-block px-12">Sistema de RPG</p>
+          <p className='p-2 mt-3'></p>
+          <p className="text-amber-200/70 tracking-[1em] text-sm md:text-xl font-bold uppercase drop-shadow-lg border-b-2 border-amber-900/30 pb-4 inline-block px-12 mt-6">Sistema de RPG</p>
         </div>
 
         <div className="flex flex-col md:flex-row gap-8 w-full justify-center items-stretch px-8">

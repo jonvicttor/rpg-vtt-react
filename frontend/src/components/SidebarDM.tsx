@@ -84,8 +84,11 @@ interface SidebarDMProps {
   // MAPA
   onResetView: () => void;
 
-  // INVENTÁRIO (NOVO)
+  // INVENTÁRIO 
   onGiveItem: (targetId: number, item: any) => void;
+
+  // NOVO: APLICAR DANO VIA CHAT
+  onApplyDamageFromChat: (targetId: number, damageExpression: string) => void;
 }
 
 const AoEColorPicker = ({ selected, onSelect }: { selected: string, onSelect: (c: string) => void }) => {
@@ -268,7 +271,7 @@ const SidebarDM: React.FC<SidebarDMProps> = ({
   onSetAttacker, aoeColor, onSetAoEColor,
   onOpenCreator, onAddXP, customMonsters, globalBrightness = 1, onSetGlobalBrightness, onRequestRoll, onToggleVisibility,
   currentTrack, onPlayMusic, onStopMusic, onPlaySFX, audioVolume, onSetAudioVolume,
-  onResetView, onGiveItem
+  onResetView, onGiveItem, onApplyDamageFromChat
 }) => {
   const [editingEntity, setEditingEntity] = useState<Entity | null>(null);
   const [activeTab, setActiveTab] = useState<SidebarTab>('combat');
@@ -347,7 +350,12 @@ const SidebarDM: React.FC<SidebarDMProps> = ({
                 <div className="flex-grow flex flex-col h-full overflow-hidden w-full">
                     <div className="flex items-center justify-between px-4 py-1 border-b border-white/5 bg-black/20"><p className="text-[8px] text-rpgText/30 font-mono italic">Canal Global</p><span className="text-[8px] text-rpgAccent/50 font-mono uppercase">Mestre On-line</span></div>
                     <div className="flex-1 w-full max-w-full overflow-hidden">
-                        <Chat messages={chatMessages} onSendMessage={onSendMessage} role="DM" />
+                        <Chat 
+                            messages={chatMessages} 
+                            onSendMessage={onSendMessage} 
+                            role="DM" 
+                            onApplyDamage={onApplyDamageFromChat} // <--- AQUI REPASA
+                        />
                     </div>
                 </div>
             ) : (

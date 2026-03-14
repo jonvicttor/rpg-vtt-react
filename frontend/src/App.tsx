@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import socket from './services/socket';
 import { Howl, Howler } from 'howler';
-import CanvasMap from './components/CanvasMap';
+import GameMap from './components/GameMap'; 
 import SidebarDM, { InitiativeItem } from './components/SidebarDM';
 import SidebarPlayer from './components/SidebarPlayer';
 import LoginScreen from './components/LoginScreen'; 
@@ -11,6 +11,7 @@ import EditEntityModal from './components/EditEntityModal';
 import MonsterCreatorModal from './components/MonsterCreatorModal';
 import BaldursDiceRoller, { RollBonus } from './components/BaldursDiceRoller'; 
 import { getLevelFromXP } from './utils/gameRules';
+import ContextMenu from './components/ContextMenu'; 
 
 const ROOM_ID = 'mesa-do-victor'; 
 const GRID_SIZE = 70; 
@@ -70,6 +71,13 @@ export interface MonsterPreset {
   ac: number;
   image: string;
   size?: number;
+}
+
+export interface MapPing {
+  id: string;
+  x: number;
+  y: number;
+  color: string;
 }
 
 // Modal de Iniciativa (Inline)
@@ -141,7 +149,6 @@ function App() {
   const [showAllyCreator, setShowAllyCreator] = useState(false);
   const [showEnemyCreator, setShowEnemyCreator] = useState(false);
 
-  // --- ESTADOS DO NOVO DADO BG3 ---
   const [showBgDice, setShowBgDice] = useState(false);
   
   const [diceContext, setDiceContext] = useState({
@@ -154,10 +161,12 @@ function App() {
       rollType: 'normal' as 'normal' | 'advantage' | 'disadvantage'
   });
 
-  // --- ESTADOS DE AUDIO ---
   const [currentTrack, setCurrentTrack] = useState<string | null>(null);
   const [audioVolume, setAudioVolume] = useState(0.5);
   const activeMusicRef = useRef<Howl | null>(null);
+
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; entity: Entity } | null>(null);
+  const [pings, setPings] = useState<MapPing[]>([]);
 
   useEffect(() => {
     const handleResize = () => setWindowSize({ w: window.innerWidth, h: window.innerHeight });
@@ -172,9 +181,9 @@ function App() {
     magic: new Howl({ src: ['/sfx/magic.mp3'], volume: 0.5, html5: true }),
     explosion: new Howl({ src: ['/sfx/explosion.mp3'], volume: 0.5, html5: true }),
     roar: new Howl({ src: ['/sfx/roar.mp3'], volume: 0.5, html5: true }),
+    ping: new Howl({ src: ['/sfx/danger-ping.mp3'], volume: 0.6, html5: true }), 
   });
 
-  // Função para Tocar Música (Global)
   const handlePlayMusic = useCallback((trackId: string, emit: boolean = true) => {
       if (activeMusicRef.current) {
           activeMusicRef.current.stop();
@@ -229,15 +238,20 @@ function App() {
   }, [audioVolume]);
 
 
-  const addLog = useCallback((text: string, type: 'info' | 'roll' | 'damage' | 'chat' = 'info', sender: string = 'Sistema', shouldEmit: boolean = true) => {
-    const newMessage: ChatMessage = { id: Date.now().toString() + Math.random(), sender, text, type, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) };
+  // --- AQUI ALTERAMOS PARA ACEITAR A MENSAGEM COMPLETA NO CHAT ---
+  const addLog = useCallback((messageData: Omit<ChatMessage, 'id' | 'timestamp'>, shouldEmit: boolean = true) => {
+    const newMessage: ChatMessage = { 
+        id: Date.now().toString() + Math.random(), 
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        ...messageData 
+    };
+    
     setChatMessages(prev => [...prev, newMessage]);
     if (shouldEmit) {
         socket.emit('sendMessage', { roomId: ROOM_ID, message: newMessage });
     }
   }, []);
 
-  // --- EFEITOS DE SOCKET ---
   useEffect(() => {
     if (!isLoggedIn) return;
 
@@ -337,11 +351,20 @@ function App() {
                     });
                     setShowBgDice(true);
                     handlePlayMusic('suspense', false); 
-                    addLog(`⚠️ O Mestre exigiu um teste de **${data.skillName}** (CD ${data.dc})!`, 'info');
+                    addLog({ text: `⚠️ O Mestre exigiu um teste de **${data.skillName}** (CD ${data.dc})!`, type: 'info', sender: 'Sistema' });
                 }
                 return currentEntities;
             });
         }
+    });
+
+    socket.on('mapPinged', (data: { ping: MapPing }) => {
+        setPings(prev => [...prev, data.ping]);
+        handlePlaySFX('ping', false); 
+        
+        setTimeout(() => {
+            setPings(prev => prev.filter(p => p.id !== data.ping.id));
+        }, 2500);
     });
 
     return () => {
@@ -364,18 +387,18 @@ function App() {
       socket.off('playMusic');
       socket.off('stopMusic');
       socket.off('playSFX');
+      socket.off('mapPinged'); 
     };
   }, [isLoggedIn, addLog, role, statusSelectionId, playerName, handlePlayMusic, handleStopMusic, handlePlaySFX, playSound]); 
 
-  // --- NOVA FUNÇÃO DE RESETAR CÂMERA ---
   const handleResetView = () => {
       setMapOffset({ x: 0, y: 0 });
       setMapScale(1);
       if (role === 'DM') {
           socket.emit('syncMapState', { roomId: ROOM_ID, offset: { x: 0, y: 0 }, scale: 1 });
-          addLog("🎥 O Mestre recentralizou a câmera de todos.", 'info');
+          addLog({ text: "🎥 O Mestre recentralizou a câmera de todos.", type: 'info', sender: 'Sistema' });
       } else {
-          addLog("🎥 Câmera recentralizada.", 'info');
+          addLog({ text: "🎥 Câmera recentralizada.", type: 'info', sender: 'Sistema' });
       }
   };
 
@@ -390,7 +413,7 @@ function App() {
   const handleDmRequestRoll = (targetId: number, skillName: string, mod: number, dc: number) => {
       const target = entities.find(e => e.id === targetId);
       const targetName = target ? target.name : 'Alvo';
-      addLog(`Mestre solicitou teste de **${skillName}** para **${targetName}** (CD ${dc}).`, 'info');
+      addLog({ text: `Mestre solicitou teste de **${skillName}** para **${targetName}** (CD ${dc}).`, type: 'info', sender: 'Sistema' });
       socket.emit('dmRequestRoll', { roomId: ROOM_ID, targetId, skillName, mod, dc });
   };
 
@@ -399,35 +422,92 @@ function App() {
       setShowBgDice(true);
   };
 
-  // --- GM ROLL IMPLEMENTADO (ATUALIZADO) ---
+  // --- NOVA FUNÇÃO QUE O CHAT VAI CHAMAR PARA APLICAR DANO ---
+  const handleApplyDamageFromChat = (targetId: number, damageExpression: string) => {
+        // Exemplo: damageExpression pode ser "1d8+2"
+        const rollMatch = damageExpression.match(/^(\d+)d(\d+)(\+(\d+))?$/i);
+        let totalDano = 0;
+        let rollString = "";
+
+        if (rollMatch) {
+            const count = parseInt(rollMatch[1]);
+            const sides = parseInt(rollMatch[2]);
+            const mod = rollMatch[4] ? parseInt(rollMatch[4]) : 0;
+            let sum = 0;
+            let rolls = [];
+            for(let i=0; i<count; i++) { 
+                const val = Math.floor(Math.random() * sides) + 1; 
+                rolls.push(val); 
+                sum += val; 
+            }
+            totalDano = sum + mod;
+            rollString = `[${rolls.join(', ')}]${mod > 0 ? `+${mod}` : ''}`;
+        } else {
+            // Se não for dado, tenta aplicar direto o valor numérico
+            totalDano = parseInt(damageExpression) || 0;
+            rollString = "Dano Fixo";
+        }
+
+        const target = entities.find(e => e.id === targetId);
+        if (target && totalDano > 0) {
+            handleUpdateHP(targetId, -totalDano);
+            handlePlaySFX('sword', true);
+            addLog({ 
+                text: `⚔️ **DANO APLICADO:** Rolou ${damageExpression} ${rollString} = **${totalDano} de Dano** no ${target.name}!`, 
+                type: 'damage', 
+                sender: 'Sistema' 
+            });
+        }
+  };
+
+  // --- LÓGICA DE ATAQUE VS CA ---
   const handleDiceComplete = (total: number, isSuccess: boolean, isCritical: boolean, isSecret: boolean) => {
       const senderName = role === 'DM' ? 'Mestre' : playerName;
-      const resultMsg = isCritical ? (total >= 20 ? "CRÍTICO! ⚔️" : "FALHA CRÍTICA! 💀") : (isSuccess ? "SUCESSO! ✅" : "FALHA ❌");
+      let resultMsg = isCritical ? (total >= 20 ? "CRÍTICO! ⚔️" : "FALHA CRÍTICA! 💀") : (isSuccess ? "SUCESSO! ✅" : "FALHA ❌");
       
+      let isAttackHit = false;
+      let targetIdForDamage: number | null = null;
+      let targetInfoMsg = "";
+
+      // Verifica se é um Ataque e se tem alvo
+      if (targetEntityIds.length > 0 && diceContext.title.toLowerCase().includes("ataque")) {
+          const target = entities.find(e => e.id === targetEntityIds[0]);
+          if (target) {
+              if (total >= target.ac || (isCritical && total >= 20)) { // Crítico sempre acerta
+                  resultMsg = `**ACERTOU!** ⚔️ (vs CA ${target.ac})`;
+                  targetInfoMsg = `\n🎯 *${target.name}* foi atingido!`;
+                  isAttackHit = true;
+                  targetIdForDamage = target.id;
+              } else {
+                  resultMsg = `**ERROU!** 🛡️ (vs CA ${target.ac})`;
+                  targetInfoMsg = `\n💨 *${target.name}* defendeu o ataque.`;
+              }
+          }
+      }
+
+      const publicText = `🎲 **${senderName}** rolou ${diceContext.title}: **${total}** - ${resultMsg}${targetInfoMsg}`;
+
       if (isSecret) {
-          // Mensagem para Mestre
-          const secretText = `👁️ (Secreto) **${senderName}** rolou ${diceContext.title}: **${total}** (${resultMsg})`;
-          // Mensagem para Players
-          const publicText = `🎲 **${senderName}** rolou dados misteriosamente...`;
-
-          const secretMessage: ChatMessage = {
-              id: Date.now().toString(),
-              sender: senderName,
-              text: role === 'DM' ? secretText : publicText,
+          const secretText = `👁️ (Secreto) ` + publicText;
+          addLog({
+              text: role === 'DM' ? secretText : `🎲 **${senderName}** rolou dados misteriosamente...`,
               type: 'roll',
-              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              sender: senderName,
               isSecret: true,
-              secretContent: secretText
-          };
-
-          // Adiciona localmente
-          setChatMessages(prev => [...prev, secretMessage]);
-          
-          // Envia para o servidor (Chat.tsx vai filtrar quem vê o que)
-          socket.emit('sendMessage', { roomId: ROOM_ID, message: secretMessage });
+              secretContent: secretText,
+              // Dados extras para o botão de dano
+              targetId: targetIdForDamage,
+              isHit: isAttackHit
+          });
       } else {
-          // Rolagem Normal
-          addLog(`🎲 **${senderName}** rolou ${diceContext.title}: **${total}** (${resultMsg})`, 'roll', senderName);
+          addLog({ 
+              text: publicText, 
+              type: 'roll', 
+              sender: senderName,
+              // Dados extras para o botão de dano
+              targetId: targetIdForDamage,
+              isHit: isAttackHit
+          });
           socket.emit('rollDice', { sides: 20, result: total, roomId: ROOM_ID, user: senderName });
       }
       
@@ -435,7 +515,7 @@ function App() {
   };
 
   const openDiceRoller = () => {
-      setDiceContext({ title: 'Rolagem Geral', subtitle: 'Teste de Sorte', dc: 10, mod: 0, prof: 0, bonuses: [], rollType: 'normal' });
+      setDiceContext({ title: 'Ataque Básico', subtitle: 'Role para acertar', dc: 10, mod: 0, prof: 0, bonuses: [], rollType: 'normal' });
       setShowBgDice(true);
   };
 
@@ -448,9 +528,9 @@ function App() {
     const calculatedLevel = getLevelFromXP(newXP);
     setEntities(prev => prev.map(ent => ent.id === id ? { ...ent, xp: newXP } : ent));
     socket.emit('updateEntityStatus', { entityId: id, updates: { xp: newXP }, roomId: ROOM_ID });
-    addLog(`${entity.name} ganhou ${amount} XP!`, 'info');
+    addLog({ text: `${entity.name} ganhou ${amount} XP!`, type: 'info', sender: 'Sistema' });
     if (calculatedLevel > oldLevel) {
-        addLog(`✨ ${entity.name} está pronto para subir de nível!`, 'info');
+        addLog({ text: `✨ ${entity.name} está pronto para subir de nível!`, type: 'info', sender: 'Sistema' });
         playSound('levelup'); 
     }
   };
@@ -459,9 +539,14 @@ function App() {
     const entity = entities.find(e => e.id === id);
     if (!entity) return;
     const newHp = Math.min(entity.maxHp, Math.max(0, entity.hp + change));
-    if (change < 0) addLog(`💥 ${entity.name} tomou ${Math.abs(change)} de dano.`, 'damage');
-    else if (change > 0) addLog(`💖 ${entity.name} curou ${change} PV.`, 'info');
-    if (entity.hp > 0 && newHp <= 0) addLog(`☠️ ${entity.name} caiu inconsciente!`, 'damage');
+    // Removemos os logs repetitivos de dano daqui, pois o botão do chat já fará isso mais bonito.
+    // if (change < 0) addLog({ text: `💥 ${entity.name} tomou ${Math.abs(change)} de dano.`, type: 'damage', sender: 'Sistema' });
+    // else if (change > 0) addLog({ text: `💖 ${entity.name} curou ${change} PV.`, type: 'info', sender: 'Sistema' });
+    
+    if (entity.hp > 0 && newHp <= 0) {
+        addLog({ text: `☠️ **${entity.name} caiu inconsciente!**`, type: 'damage', sender: 'Sistema' });
+    }
+    
     setEntities(prev => prev.map(ent => ent.id === id ? { ...ent, hp: newHp } : ent));
     socket.emit('updateEntityStatus', { entityId: id, updates: { hp: newHp }, roomId: ROOM_ID });
   };
@@ -478,28 +563,198 @@ function App() {
         for(let i=0; i<count; i++) { const val = Math.floor(Math.random() * sides) + 1; rolls.push(val); sum += val; }
         const total = sum + mod;
         const rollString = `[${rolls.join(', ')}]` + (mod > 0 ? ` + ${mod}` : '');
-        addLog(`🎲 Rolou ${count}d${sides}${mod ? '+'+mod : ''}: ${rollString} = **${total}**`, 'roll', senderName);
+        addLog({ text: `🎲 Rolou ${count}d${sides}${mod ? '+'+mod : ''}: ${rollString} = **${total}**`, type: 'roll', sender: senderName });
         handlePlaySFX('dado', true);
       } else {
-        addLog(text, 'chat', senderName);
+        addLog({ text: text, type: 'chat', sender: senderName });
       }
   };
 
-  // --- NOVA FUNÇÃO DE DAR ITEM (INVENTÁRIO) ---
   const handleGiveItem = (targetId: number, item: any) => {
       setEntities(prev => prev.map(ent => {
           if (ent.id !== targetId) return ent;
           const newInventory = [...(ent.inventory || []), item];
           socket.emit('updateEntityStatus', { entityId: targetId, updates: { inventory: newInventory }, roomId: ROOM_ID });
-          addLog(`🎁 ${ent.name} recebeu ${item.quantity}x ${item.name}!`, 'info');
+          addLog({ text: `🎁 ${ent.name} recebeu ${item.quantity}x ${item.name}!`, type: 'info', sender: 'Sistema' });
           return { ...ent, inventory: newInventory };
       }));
   };
 
-  const handleUpdatePosition = (id: number, newX: number, newY: number) => {
-    setEntities(prev => prev.map(ent => ent.id === id ? { ...ent, x: newX, y: newY } : ent));
-    socket.emit('updateEntityPosition', { entityId: id, x: newX, y: newY, roomId: ROOM_ID });
+  const handleDropLootOnMap = (item: Item, sourceId: number, x: number, y: number) => {
+      setEntities(prev => prev.map(ent => {
+          if (ent.id !== sourceId) return ent;
+          const newInv = (ent.inventory || []).filter(i => i.id !== item.id);
+          socket.emit('updateEntityStatus', { entityId: sourceId, updates: { inventory: newInv }, roomId: ROOM_ID });
+          return { ...ent, inventory: newInv };
+      }));
+
+      const lootId = Date.now();
+      const lootEntity: Entity = {
+          id: lootId,
+          name: item.name,
+          hp: 1, maxHp: 1, ac: 10,
+          x: x, y: y,
+          type: 'player', 
+          color: '#fbbf24', 
+          image: item.image, 
+          size: 0.5, 
+          conditions: [],
+          stats: { str:0, dex:0, con:0, int:0, wis:0, cha:0 },
+          visible: true,
+          inventory: [item],
+          level: 0,
+          classType: 'Item'
+      };
+
+      setEntities(prev => [...prev, lootEntity]);
+      socket.emit('createEntity', { entity: lootEntity, roomId: ROOM_ID });
+      addLog({ text: `🎒 ${item.name} foi jogado no chão!`, type: 'info', sender: 'Sistema' });
+      handlePlaySFX('dado', true); 
   };
+
+  const handleGiveItemToToken = (item: Item, sourceId: number, targetId: number) => {
+      if (sourceId === targetId) return; 
+
+      const sourceEntity = entities.find(e => e.id === sourceId);
+      const targetEntity = entities.find(e => e.id === targetId);
+
+      if (!sourceEntity || !targetEntity) return;
+
+      const sourceInv = (sourceEntity.inventory || []).filter(i => i.id !== item.id);
+      
+      const targetInv = [...(targetEntity.inventory || []), { ...item, isEquipped: false }]; 
+
+      setEntities(prev => prev.map(ent => {
+          if (ent.id === sourceId) return { ...ent, inventory: sourceInv };
+          if (ent.id === targetId) return { ...ent, inventory: targetInv };
+          return ent;
+      }));
+
+      socket.emit('updateEntityStatus', { entityId: sourceId, updates: { inventory: sourceInv }, roomId: ROOM_ID });
+      socket.emit('updateEntityStatus', { entityId: targetId, updates: { inventory: targetInv }, roomId: ROOM_ID });
+
+      addLog({ text: `🤝 **${sourceEntity.name}** deu **${item.name}** para **${targetEntity.name}**.`, type: 'info', sender: 'Sistema' });
+      handlePlaySFX('dado', true);
+  };
+
+  const handlePickUpLoot = (lootEntity: Entity) => {
+      let receiver: Entity | undefined;
+      
+      if (role === 'PLAYER') {
+          receiver = entities.find(e => e.name === playerName && e.type === 'player');
+      } else {
+          if (targetEntityIds.length > 0) {
+              receiver = entities.find(e => e.id === targetEntityIds[0]);
+          }
+      }
+
+      if (!receiver) {
+          alert(role === 'DM' ? "Selecione um token (Alvo) para pegar o item." : "Você não tem um personagem para pegar isso.");
+          return;
+      }
+
+      const item = lootEntity.inventory && lootEntity.inventory[0];
+      if (!item) {
+          handleDeleteEntity(lootEntity.id);
+          return;
+      }
+
+      const newInventory = [...(receiver.inventory || []), item];
+      setEntities(prev => prev.map(ent => ent.id === receiver!.id ? { ...ent, inventory: newInventory } : ent));
+      socket.emit('updateEntityStatus', { entityId: receiver.id, updates: { inventory: newInventory }, roomId: ROOM_ID });
+
+      handleDeleteEntity(lootEntity.id);
+      setStatusSelectionId(null);
+      addLog({ text: `🎒 ${receiver.name} pegou ${item.name} do chão.`, type: 'info', sender: 'Sistema' });
+      handlePlaySFX('dado', true); 
+  };
+
+  const handleContextMenuAction = (action: string, entity: Entity) => {
+      switch (action) {
+          case 'VIEW_SHEET':
+              if (role === 'DM') setEditingEntity(entity);
+              else alert(`Visualizando ficha de ${entity.name} (Em breve)`);
+              break;
+          case 'WHISPER':
+              addLog({ text: `(Sistema) Use "/w ${entity.name} mensagem" para sussurrar.`, type: 'info', sender: 'Sistema' });
+              break;
+          case 'SET_ATTACKER':
+              setAttackerId(entity.id);
+              break;
+          case 'SET_TARGET':
+              handleSetTarget(entity.id, true); 
+              break;
+          case 'TOGGLE_VISIBILITY':
+              handleToggleVisibility(entity.id);
+              break;
+          case 'HEAL_FULL':
+              handleUpdateHP(entity.id, entity.maxHp);
+              break;
+          case 'TOGGLE_DEAD':
+              if (entity.hp > 0) handleUpdateHP(entity.id, -entity.hp);
+              else handleUpdateHP(entity.id, 1);
+              break;
+      }
+      setContextMenu(null);
+  };
+
+  const handlePingMap = (x: number, y: number) => {
+      const myColor = role === 'DM' ? '#ef4444' : '#3b82f6'; 
+      const newPing: MapPing = {
+          id: Date.now().toString() + Math.random(),
+          x, y,
+          color: myColor
+      };
+      
+      setPings(prev => [...prev, newPing]);
+      socket.emit('pingMap', { ping: newPing, roomId: ROOM_ID });
+      handlePlaySFX('ping', true); 
+      
+      setTimeout(() => {
+          setPings(prev => prev.filter(p => p.id !== newPing.id));
+      }, 2500);
+  };
+
+  const handleUpdatePosition = (id: number, newX: number, newY: number) => {
+    let shouldSyncFog = false;
+    let newFogGrid = [...fogGrid.map(row => [...row])];
+
+    setEntities(prev => {
+        return prev.map(ent => {
+            if (ent.id === id) {
+                const updatedEnt = { ...ent, x: newX, y: newY };
+                
+                if (updatedEnt.type === 'player' && updatedEnt.visionRadius && updatedEnt.visionRadius > 0) {
+                     const radius = updatedEnt.visionRadius;
+                     const startY = Math.max(0, Math.floor(newY - radius));
+                     const endY = Math.min(newFogGrid.length - 1, Math.ceil(newY + radius));
+                     const startX = Math.max(0, Math.floor(newX - radius));
+                     const endX = Math.min(newFogGrid[0].length - 1, Math.ceil(newX + radius));
+
+                     for (let y = startY; y <= endY; y++) {
+                         for (let x = startX; x <= endX; x++) {
+                             const distance = Math.sqrt(Math.pow(x - newX, 2) + Math.pow(y - newY, 2));
+                             if (distance <= radius && newFogGrid[y][x] === false) {
+                                 newFogGrid[y][x] = true;
+                                 shouldSyncFog = true;
+                             }
+                         }
+                     }
+                }
+                return updatedEnt;
+            }
+            return ent;
+        });
+    });
+
+    socket.emit('updateEntityPosition', { entityId: id, x: newX, y: newY, roomId: ROOM_ID });
+    
+    if (shouldSyncFog) {
+        setFogGrid(newFogGrid);
+        socket.emit('syncFogGrid', { grid: newFogGrid, roomId: ROOM_ID });
+    }
+  };
+
   const handleRotateToken = (id: number, angle: number) => {
     setEntities(prev => prev.map(ent => ent.id === id ? { ...ent, rotation: angle } : ent));
     socket.emit('updateEntityStatus', { entityId: id, updates: { rotation: angle }, roomId: ROOM_ID });
@@ -520,7 +775,7 @@ function App() {
         if (ent.id !== id) return ent;
         const hasCondition = ent.conditions.includes(condition);
         const newConditions = hasCondition ? ent.conditions.filter(c => c !== condition) : [...ent.conditions, condition];
-        if (!hasCondition) addLog(`${ent.name} recebeu condição: ${condition}`, 'info');
+        if (!hasCondition) addLog({ text: `${ent.name} recebeu condição: ${condition}`, type: 'info', sender: 'Sistema' });
         socket.emit('updateEntityStatus', { entityId: id, updates: { conditions: newConditions }, roomId: ROOM_ID });
         return { ...ent, conditions: newConditions };
     }));
@@ -532,7 +787,7 @@ function App() {
         const newVisible = ent.visible === undefined ? false : !ent.visible; 
         
         if (role === 'DM') {
-             addLog(newVisible ? `👁️ ${ent.name} revelou-se!` : `👻 ${ent.name} desapareceu nas sombras.`, 'info', 'Sistema', false); 
+             addLog({ text: newVisible ? `👁️ ${ent.name} revelou-se!` : `👻 ${ent.name} desapareceu nas sombras.`, type: 'info', sender: 'Sistema' }, false); 
         }
         
         socket.emit('updateEntityStatus', { entityId: id, updates: { visible: newVisible }, roomId: ROOM_ID });
@@ -567,7 +822,7 @@ function App() {
     };
     setEntities(prev => [...prev, newEntity]);
     socket.emit('createEntity', { entity: newEntity, roomId: ROOM_ID });
-    addLog(`${name} entrou na mesa.`, 'info');
+    addLog({ text: `${name} entrou na mesa.`, type: 'info', sender: 'Sistema' });
   };
 
   const handleAddEntity = (type: 'enemy' | 'player', name: string, customStats?: MonsterPreset) => { createEntity(type, name, 8, 6, customStats as Partial<Entity>); };
@@ -593,12 +848,12 @@ function App() {
   
   const handleSaveGame = () => {
     socket.emit('saveGame', { roomId: ROOM_ID, entities, fogGrid, currentMap, initiativeList, activeTurnId, chatMessages, customMonsters, globalBrightness, currentTrack });
-    addLog("O Mestre salvou o estado da mesa no servidor.", 'info');
+    addLog({ text: "O Mestre salvou o estado da mesa no servidor.", type: 'info', sender: 'Sistema' });
   };
 
   const handleSaveMonsterPreset = (preset: MonsterPreset) => {
       setCustomMonsters(prev => [...prev, preset]);
-      addLog(`Novo monstro salvo na lista: ${preset.name}`, 'info');
+      addLog({ text: `Novo monstro salvo na lista: ${preset.name}`, type: 'info', sender: 'Sistema' });
   };
 
   const handleUpdateGlobalBrightness = (val: number) => {
@@ -615,7 +870,7 @@ function App() {
     const newActive = activeTurnId === null ? initModalEntity.id : activeTurnId;
     setActiveTurnId(newActive);
     socket.emit('updateInitiative', { list: newList, activeTurnId: newActive, roomId: ROOM_ID });
-    addLog(`${initModalEntity.name} rolou Iniciativa: ${val}`, 'info');
+    addLog({ text: `${initModalEntity.name} rolou Iniciativa: ${val}`, type: 'info', sender: 'Sistema' });
     handlePlaySFX('dado', true);
     setInitModalEntity(null);
   };
@@ -627,7 +882,7 @@ function App() {
     setActiveTurnId(nextId);
     socket.emit('updateInitiative', { list: initiativeList, activeTurnId: nextId, roomId: ROOM_ID });
     const nextEntity = initiativeList.find(i => i.id === nextId);
-    if(nextEntity) addLog(`Turno de: ${nextEntity.name}`, 'info');
+    if(nextEntity) addLog({ text: `Turno de: ${nextEntity.name}`, type: 'info', sender: 'Sistema' });
   };
   const handleClearInitiative = () => { setInitiativeList([]); setActiveTurnId(null); socket.emit('updateInitiative', { list: [], activeTurnId: null, roomId: ROOM_ID }); };
   const handleSortInitiative = () => { const newList = [...initiativeList].sort((a, b) => b.value - a.value); setInitiativeList(newList); socket.emit('updateInitiative', { list: newList, activeTurnId, roomId: ROOM_ID }); };
@@ -642,7 +897,6 @@ function App() {
   const handleSetAttacker = (id: number | null) => { if (role !== 'DM') return; setAttackerId(id); };
   const handleSelectEntityForStatus = (entity: Entity) => { setStatusSelectionId(entity.id); };
   
-  // --- LOGIN E START GAME ---
   const handleLogin = (selectedRole: 'DM' | 'PLAYER', name: string, charData?: any) => {
     setRole(selectedRole); 
     setPlayerName(name); 
@@ -686,7 +940,7 @@ function App() {
 
   const handleStartGame = () => {
       setGamePhase('GAME');
-      addLog("A aventura começou!", 'info');
+      addLog({ text: "A aventura começou!", type: 'info', sender: 'Sistema' });
   };
 
   const selectedStatusEntity = statusSelectionId ? entities.find(e => e.id === statusSelectionId) : null;
@@ -717,7 +971,6 @@ function App() {
       setShowEnemyCreator(false);
   };
 
-  // --- RENDERIZAÇÃO CONDICIONAL DE TELAS ---
   if (!isLoggedIn) {
       return <LoginScreen onLogin={handleLogin} />;
   }
@@ -732,7 +985,6 @@ function App() {
       );
   }
 
-  // --- FASE DE JOGO (GAME) ---
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-rpgBg" onClick={() => { if (Howler.ctx && Howler.ctx.state !== 'running') Howler.ctx.resume(); }}>
       {initModalEntity && (<InitiativeModal entity={initModalEntity} onClose={() => setInitModalEntity(null)} onConfirm={handleSubmitInitiative} />)}
@@ -745,66 +997,102 @@ function App() {
           />
       )}
 
+      {/* --- MODAL DE STATUS / LOOT --- */}
       {selectedStatusEntity && (
         <div 
           className="fixed z-50 bg-gray-900/95 border-2 border-cyan-400 p-4 rounded-xl shadow-[0_0_30px_rgba(34,211,238,0.3)] text-cyan-50 w-80 backdrop-blur-md animate-in fade-in zoom-in duration-100 font-mono transition-all ease-linear"
           style={{ top: modalPosition.top, left: modalPosition.left }}
         >
-          {/* ... CONTEÚDO DO STATUS MODAL (MANTIDO IGUAL) ... */}
           <div className="flex justify-between items-center mb-3 pb-2 border-b border-cyan-400/40 relative">
-            <h3 className="text-base font-black tracking-[0.15em] text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-blue-400">STATUS</h3>
+            <h3 className="text-base font-black tracking-[0.15em] text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-blue-400">
+                {selectedStatusEntity.classType === 'Item' ? 'LOOT' : 'STATUS'}
+            </h3>
             <button onClick={() => setStatusSelectionId(null)} className="text-cyan-500 hover:text-white transition-colors text-base font-bold">✕</button>
           </div>
-          <div className="flex gap-3 mb-4">
-            <div onClick={() => role === 'DM' && setEditingEntity(selectedStatusEntity)} className={`w-16 h-16 rounded-lg border-2 border-cyan-400 overflow-hidden shrink-0 relative shadow-lg shadow-cyan-500/20 group ${role === 'DM' ? 'cursor-pointer' : ''}`}>
-              {selectedStatusEntity.image ? (
-                <img src={selectedStatusEntity.image} alt={selectedStatusEntity.name} className="w-full h-full object-cover" />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center font-bold text-xl" style={{ backgroundColor: selectedStatusEntity.color }}>{selectedStatusEntity.name[0]}</div>
-              )}
-              {role === 'DM' && (<div className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"><span className="text-[10px] font-bold text-cyan-300 uppercase tracking-widest border border-cyan-300 px-1 rounded">Editar</span></div>)}
-            </div>
-            <div className="flex flex-col justify-center gap-1 text-xs w-full">
-              <div className="flex justify-between items-end border-b border-white/10 pb-1">
-                  <span className="text-cyan-400 font-bold uppercase tracking-wider text-[10px]">Nome</span>
-                  <span className="font-bold truncate ml-1 text-white text-sm max-w-[140px]">{selectedStatusEntity.name}</span>
+
+          {selectedStatusEntity.classType === 'Item' ? (
+              <div className="flex flex-col items-center gap-4 py-2">
+                  <div className="w-24 h-24 bg-black/50 rounded-lg border border-yellow-500/50 shadow-[0_0_15px_rgba(234,179,8,0.2)] flex items-center justify-center p-2 relative overflow-hidden group">
+                      <div className="absolute inset-0 bg-yellow-500/10 blur-xl"></div>
+                      {selectedStatusEntity.image ? (
+                          <img src={selectedStatusEntity.image} alt="Item" className="w-full h-full object-contain relative z-10" />
+                      ) : (
+                          <span className="text-2xl">🎁</span>
+                      )}
+                  </div>
+                  
+                  <div className="text-center">
+                      <h2 className="text-xl font-bold text-yellow-400 drop-shadow-sm">{selectedStatusEntity.name}</h2>
+                      <p className="text-[10px] text-gray-400 uppercase tracking-widest mt-1">Item no Chão</p>
+                  </div>
+
+                  <button 
+                    onClick={() => handlePickUpLoot(selectedStatusEntity)}
+                    className="w-full py-3 bg-yellow-600/20 hover:bg-yellow-600/40 border border-yellow-500 text-yellow-200 font-bold uppercase tracking-widest rounded transition-all active:scale-95 flex items-center justify-center gap-2 shadow-lg"
+                  >
+                      <span>✋</span> Pegar Item
+                  </button>
+                  
+                  {role === 'DM' && (
+                      <p className="text-[9px] text-gray-500 text-center italic mt-1">
+                          (Dica: Selecione um token alvo para entregar o item a ele)
+                      </p>
+                  )}
               </div>
-              <div className="flex justify-between items-end border-b border-white/10 pb-1">
-                  <span className="text-cyan-400 font-bold uppercase tracking-wider text-[10px]">Classe</span>
-                  <span className="font-bold text-white text-xs">{selectedStatusEntity.classType || 'N/A'}</span>
-              </div>
-              <div className="flex justify-between items-center bg-cyan-950/50 px-2 py-1 rounded border border-cyan-500/20 mt-1">
-                  <span className="text-cyan-400 font-bold text-[10px] uppercase">Nível</span>
-                  <span className="font-black text-yellow-400 text-sm drop-shadow-sm">{getLevelFromXP(selectedStatusEntity.xp || 0)}</span>
-              </div>
-            </div>
-          </div>
-          <div className="mb-4">
-            <div className="flex justify-between text-[10px] font-bold mb-1 px-1 uppercase tracking-wider">
-              <span className="text-cyan-400">Integridade</span>
-              <span className={selectedStatusEntity.hp < selectedStatusEntity.maxHp / 2 ? "text-red-400" : "text-cyan-100"}>{selectedStatusEntity.hp} / {selectedStatusEntity.maxHp}</span>
-            </div>
-            <div className="w-full h-3 bg-gray-800 rounded border border-cyan-500/30 overflow-hidden relative shadow-inner">
-              <div className={`h-full transition-all duration-300 relative ${selectedStatusEntity.hp <= selectedStatusEntity.maxHp * 0.25 ? 'bg-red-600' : selectedStatusEntity.hp <= selectedStatusEntity.maxHp * 0.5 ? 'bg-yellow-500' : 'bg-gradient-to-r from-cyan-500 to-blue-600'}`} style={{ width: `${Math.max(0, Math.min(100, (selectedStatusEntity.hp / selectedStatusEntity.maxHp) * 100))}%` }}></div>
-            </div>
-          </div>
-          {selectedStatusEntity.stats && (
-            <div className="grid grid-cols-2 gap-2 text-xs bg-black/40 p-2 rounded-lg border border-cyan-500/20">
-              {Object.entries(selectedStatusEntity.stats).map(([stat, value]) => {
-                  const mod = Math.floor((value - 10) / 2);
-                  const modStr = mod >= 0 ? `+${mod}` : `${mod}`;
-                  const labels: Record<string, string> = { str: 'FOR', dex: 'DES', con: 'CON', int: 'INT', wis: 'SAB', cha: 'CAR' };
-                  return (
-                  <div key={stat} className="flex justify-between items-center px-2 py-1.5 bg-cyan-900/20 rounded border border-white/5 hover:border-cyan-500/30 transition-colors">
-                    <span className="font-bold text-cyan-500 text-[10px] uppercase">{labels[stat]}</span>
-                    <div className="flex gap-1.5 items-baseline">
-                        <span className="text-white font-bold">{value}</span>
-                        <span className={`font-black text-[10px] ${mod > 0 ? 'text-green-400' : mod < 0 ? 'text-red-400' : 'text-gray-500'}`}>{modStr}</span>
+          ) : (
+              <>
+                  <div className="flex gap-3 mb-4">
+                    <div onClick={() => role === 'DM' && setEditingEntity(selectedStatusEntity)} className={`w-16 h-16 rounded-lg border-2 border-cyan-400 overflow-hidden shrink-0 relative shadow-lg shadow-cyan-500/20 group ${role === 'DM' ? 'cursor-pointer' : ''}`}>
+                      {selectedStatusEntity.image ? (
+                        <img src={selectedStatusEntity.image} alt={selectedStatusEntity.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center font-bold text-xl" style={{ backgroundColor: selectedStatusEntity.color }}>{selectedStatusEntity.name[0]}</div>
+                      )}
+                      {role === 'DM' && (<div className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"><span className="text-[10px] font-bold text-cyan-300 uppercase tracking-widest border border-cyan-300 px-1 rounded">Editar</span></div>)}
+                    </div>
+                    <div className="flex flex-col justify-center gap-1 text-xs w-full">
+                      <div className="flex justify-between items-end border-b border-white/10 pb-1">
+                          <span className="text-cyan-400 font-bold uppercase tracking-wider text-[10px]">Nome</span>
+                          <span className="font-bold truncate ml-1 text-white text-sm max-w-[140px]">{selectedStatusEntity.name}</span>
+                      </div>
+                      <div className="flex justify-between items-end border-b border-white/10 pb-1">
+                          <span className="text-cyan-400 font-bold uppercase tracking-wider text-[10px]">Classe</span>
+                          <span className="font-bold text-white text-xs">{selectedStatusEntity.classType || 'N/A'}</span>
+                      </div>
+                      <div className="flex justify-between items-center bg-cyan-950/50 px-2 py-1 rounded border border-cyan-500/20 mt-1">
+                          <span className="text-cyan-400 font-bold text-[10px] uppercase">Nível</span>
+                          <span className="font-black text-yellow-400 text-sm drop-shadow-sm">{getLevelFromXP(selectedStatusEntity.xp || 0)}</span>
+                      </div>
                     </div>
                   </div>
-                );
-              })}
-            </div>
+                  <div className="mb-4">
+                    <div className="flex justify-between text-[10px] font-bold mb-1 px-1 uppercase tracking-wider">
+                      <span className="text-cyan-400">Integridade</span>
+                      <span className={selectedStatusEntity.hp < selectedStatusEntity.maxHp / 2 ? "text-red-400" : "text-cyan-100"}>{selectedStatusEntity.hp} / {selectedStatusEntity.maxHp}</span>
+                    </div>
+                    <div className="w-full h-3 bg-gray-800 rounded border border-cyan-500/30 overflow-hidden relative shadow-inner">
+                      <div className={`h-full transition-all duration-300 relative ${selectedStatusEntity.hp <= selectedStatusEntity.maxHp * 0.25 ? 'bg-red-600' : selectedStatusEntity.hp <= selectedStatusEntity.maxHp * 0.5 ? 'bg-yellow-500' : 'bg-gradient-to-r from-cyan-500 to-blue-600'}`} style={{ width: `${Math.max(0, Math.min(100, (selectedStatusEntity.hp / selectedStatusEntity.maxHp) * 100))}%` }}></div>
+                    </div>
+                  </div>
+                  {selectedStatusEntity.stats && (
+                    <div className="grid grid-cols-2 gap-2 text-xs bg-black/40 p-2 rounded-lg border border-cyan-500/20">
+                      {Object.entries(selectedStatusEntity.stats).map(([stat, value]) => {
+                          const mod = Math.floor((value - 10) / 2);
+                          const modStr = mod >= 0 ? `+${mod}` : `${mod}`;
+                          const labels: Record<string, string> = { str: 'FOR', dex: 'DES', con: 'CON', int: 'INT', wis: 'SAB', cha: 'CAR' };
+                          return (
+                          <div key={stat} className="flex justify-between items-center px-2 py-1.5 bg-cyan-900/20 rounded border border-white/5 hover:border-cyan-500/30 transition-colors">
+                            <span className="font-bold text-cyan-500 text-[10px] uppercase">{labels[stat]}</span>
+                            <div className="flex gap-1.5 items-baseline">
+                                <span className="text-white font-bold">{value}</span>
+                                <span className={`font-black text-[10px] ${mod > 0 ? 'text-green-400' : mod < 0 ? 'text-red-400' : 'text-gray-500'}`}>{modStr}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+              </>
           )}
         </div>
       )}
@@ -818,6 +1106,17 @@ function App() {
             onSave={handleSaveNewEnemy} 
             onSavePreset={handleSaveMonsterPreset} 
             onClose={() => setShowEnemyCreator(false)} 
+          />
+      )}
+
+      {contextMenu && (
+          <ContextMenu 
+              x={contextMenu.x}
+              y={contextMenu.y}
+              entity={contextMenu.entity}
+              role={role}
+              onClose={() => setContextMenu(null)}
+              onAction={handleContextMenuAction}
           />
       )}
 
@@ -841,7 +1140,7 @@ function App() {
            </span>
         </div>
 
-        <CanvasMap 
+        <GameMap 
           mapUrl={currentMap} gridSize={GRID_SIZE} entities={entities} role={role} fogGrid={fogGrid} isFogMode={isFogMode} fogTool={fogTool} activeTurnId={activeTurnId}
           onFogUpdate={handleFogUpdate} onMoveToken={handleUpdatePosition} onAddToken={handleMapDrop} onRotateToken={handleRotateToken}
           onResizeToken={handleResizeToken} 
@@ -853,6 +1152,13 @@ function App() {
           onMapChange={handleMapSync}
           focusEntity={focusEntity} 
           globalBrightness={globalBrightness}
+          onDropItem={handleDropLootOnMap}
+          onGiveItemToToken={handleGiveItemToToken}
+          onContextMenu={(e, entity) => {
+              setContextMenu({ x: e.clientX, y: e.clientY, entity });
+          }}
+          pings={pings}
+          onPing={handlePingMap}
         />
         
         <div className="fixed bottom-6 right-[450px] z-[130] pointer-events-auto animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -898,10 +1204,14 @@ function App() {
               onResetView={handleResetView}
               // NOVA PROP: DAR ITEM
               onGiveItem={handleGiveItem}
+              
+              // PASSANDO A FUNÇÃO DE DANO PARA A SIDEBAR (Que tem o Chat)
+              onApplyDamageFromChat={handleApplyDamageFromChat}
             /> 
           : <SidebarPlayer 
               entities={entities} 
               myCharacterName={playerName}
+              myCharacterId={entities.find(e => e.name === playerName)?.id || 0} 
               initiativeList={initiativeList} 
               activeTurnId={activeTurnId} 
               chatMessages={chatMessages} 
@@ -912,6 +1222,8 @@ function App() {
                   setFocusEntity(entity);
                   setTimeout(() => setFocusEntity(null), 100);
               }}
+              // PASSANDO A FUNÇÃO DE DANO
+              onApplyDamageFromChat={handleApplyDamageFromChat}
             />
         }
       </aside>
