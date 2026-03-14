@@ -178,6 +178,22 @@ io.on('connection', (socket) => {
     socket.to(data.roomId).emit('fogUpdated', data);
   });
 
+  // 👇 --- EVENTOS DE SINCRONIZAÇÃO ADICIONADOS AQUI --- 👇
+
+  socket.on('syncFogGrid', (data) => {
+    currentGameState.fogGrid = data.grid;
+    socket.to(data.roomId).emit('fogGridSynced', data);
+  });
+
+  socket.on('syncMapState', (data) => {
+    socket.to(data.roomId).emit('mapStateUpdated', {
+      offset: data.offset,
+      scale: data.scale
+    });
+  });
+
+  // 👆 ------------------------------------------------ 👆
+
   socket.on('updateInitiative', (data) => {
     currentGameState.initiativeList = data.list;
     currentGameState.activeTurnId = data.activeTurnId;

@@ -891,37 +891,43 @@ function App() {
     setGamePhase('LOBBY'); 
 
     socket.emit('joinRoom', ROOM_ID);
+
     if (selectedRole === 'PLAYER' && charData) {
         setTimeout(() => {
-            const charExists = entities.find(e => e.name.toLowerCase() === name.toLowerCase());
-            if (!charExists) {
-                const newEntity: Entity = { 
-                    id: charData.id || Date.now(), 
-                    name, 
-                    hp: charData.hp, 
-                    maxHp: charData.maxHp, 
-                    ac: charData.ac, 
-                    x: 8, y: 6,
-                    rotation: 0, 
-                    mirrored: false, 
-                    conditions: [], 
-                    color: '#3b82f6', 
-                    type: 'player', 
-                    image: charData.image, 
-                    stats: charData.stats, 
-                    classType: charData.classType, 
-                    visionRadius: 9, 
-                    size: 1,
-                    xp: 0,
-                    level: 1,
-                    inventory: [], 
-                    race: 'Humano',
-                    visible: true
-                };
-                setEntities(prev => [...prev, newEntity]);
-                socket.emit('createEntity', { entity: newEntity, roomId: ROOM_ID });
-            }
-        }, 800); 
+            setEntities(prev => {
+                const charExists = prev.find(e => e.name.toLowerCase() === name.toLowerCase() && e.type === 'player');
+                
+                if (!charExists) {
+                    const newEntity: Entity = { 
+                        id: charData.id || Date.now(), 
+                        name, 
+                        hp: charData.hp, 
+                        maxHp: charData.maxHp, 
+                        ac: charData.ac, 
+                        x: 8, y: 6,
+                        rotation: charData.rotation || 0, 
+                        mirrored: charData.mirrored || false, 
+                        conditions: charData.conditions || [], 
+                        color: '#3b82f6', 
+                        type: 'player', 
+                        image: charData.image, 
+                        stats: charData.stats, 
+                        classType: charData.classType, 
+                        visionRadius: charData.visionRadius || 9, 
+                        size: charData.size || 1,
+                        xp: charData.xp || 0,
+                        level: charData.level || 1,
+                        inventory: charData.inventory || [], 
+                        race: charData.race || 'Humano',
+                        visible: charData.visible !== false
+                    };
+                    socket.emit('createEntity', { entity: newEntity, roomId: ROOM_ID });
+                    return [...prev, newEntity];
+                }
+                
+                return prev;
+            });
+        }, 1500); 
     }
   };
 
