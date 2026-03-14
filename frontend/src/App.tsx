@@ -80,7 +80,6 @@ export interface MapPing {
   color: string;
 }
 
-// Modal de Iniciativa (Inline)
 const InitiativeModal = ({ entity, onClose, onConfirm }: { entity: Entity, onClose: () => void, onConfirm: (val: number) => void }) => {
   const [manualValue, setManualValue] = useState('');
   const dexMod = entity.stats ? Math.floor((entity.stats.dex - 10) / 2) : 0;
@@ -113,6 +112,17 @@ const createInitialFog = () => {
     const COLS = Math.ceil(MAP_LIMIT / GRID_SIZE);
     const ROWS = Math.ceil(MAP_LIMIT / GRID_SIZE);
     return Array(ROWS).fill(null).map(() => Array(COLS).fill(false));
+};
+
+// --- EFEITOS SONOROS (FORA DO COMPONENTE PARA EVITAR VAZAMENTO DE MEMÓRIA) ---
+const SFX_LIBRARY: Record<string, Howl> = {
+  dado: new Howl({ src: ['/sfx/dado.mp3'], volume: 0.5, html5: true }),
+  levelup: new Howl({ src: ['/sfx/levelup.mp3'], volume: 0.6, html5: true }),
+  sword: new Howl({ src: ['/sfx/sword.mp3'], volume: 0.5, html5: true }),
+  magic: new Howl({ src: ['/sfx/magic.mp3'], volume: 0.5, html5: true }),
+  explosion: new Howl({ src: ['/sfx/explosion.mp3'], volume: 0.5, html5: true }),
+  roar: new Howl({ src: ['/sfx/roar.mp3'], volume: 0.5, html5: true }),
+  ping: new Howl({ src: ['/sfx/danger-ping.mp3'], volume: 0.6, html5: true }), 
 };
 
 function App() {
@@ -174,16 +184,6 @@ function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  const audioRefs = useRef({
-    dado: new Howl({ src: ['/sfx/dado.mp3'], volume: 0.5, html5: true }),
-    levelup: new Howl({ src: ['/sfx/levelup.mp3'], volume: 0.6, html5: true }),
-    sword: new Howl({ src: ['/sfx/sword.mp3'], volume: 0.5, html5: true }),
-    magic: new Howl({ src: ['/sfx/magic.mp3'], volume: 0.5, html5: true }),
-    explosion: new Howl({ src: ['/sfx/explosion.mp3'], volume: 0.5, html5: true }),
-    roar: new Howl({ src: ['/sfx/roar.mp3'], volume: 0.5, html5: true }),
-    ping: new Howl({ src: ['/sfx/danger-ping.mp3'], volume: 0.6, html5: true }), 
-  });
-
   const handlePlayMusic = useCallback((trackId: string, emit: boolean = true) => {
       if (activeMusicRef.current) {
           activeMusicRef.current.stop();
@@ -217,8 +217,7 @@ function App() {
   }, []);
 
   const handlePlaySFX = useCallback((sfxId: string, emit: boolean = true) => {
-      // @ts-ignore
-      const sound = audioRefs.current[sfxId];
+      const sound = SFX_LIBRARY[sfxId];
       if (sound) {
           sound.volume(audioVolume);
           sound.play();
@@ -237,8 +236,6 @@ function App() {
       Howler.volume(audioVolume);
   }, [audioVolume]);
 
-
-  // --- AQUI ALTERAMOS PARA ACEITAR A MENSAGEM COMPLETA NO CHAT ---
   const addLog = useCallback((messageData: Omit<ChatMessage, 'id' | 'timestamp'>, shouldEmit: boolean = true) => {
     const newMessage: ChatMessage = { 
         id: Date.now().toString() + Math.random(), 
@@ -272,7 +269,7 @@ function App() {
   useEffect(() => {
     if (!isLoggedIn) return;
 
-    socket.on('gameStateSync', (gameState) => {
+    socket.on('gameStateSync', (gameState: any) => {
       if (gameState.entities) setEntities(gameState.entities);
       if (gameState.fogGrid) setFogGrid(gameState.fogGrid);
       if (gameState.currentMap) setCurrentMap(gameState.currentMap);
@@ -284,32 +281,32 @@ function App() {
       if (gameState.currentTrack) handlePlayMusic(gameState.currentTrack, false);
     });
 
-    socket.on('notification', (data) => { alert(data.message); });
+    socket.on('notification', (data: any) => { alert(data.message); });
     socket.on('newDiceResult', () => playSound('dado'));
     
-    socket.on('chatMessage', (data) => {
+    socket.on('chatMessage', (data: any) => {
         setChatMessages(prev => {
             if (prev.some(msg => msg.id === data.message.id)) return prev;
             return [...prev, data.message];
         });
     });
 
-    socket.on('playMusic', (data) => handlePlayMusic(data.trackId, false));
+    socket.on('playMusic', (data: any) => handlePlayMusic(data.trackId, false));
     socket.on('stopMusic', () => handleStopMusic(false));
-    socket.on('playSFX', (data) => handlePlaySFX(data.sfxId, false));
+    socket.on('playSFX', (data: any) => handlePlaySFX(data.sfxId, false));
 
-    socket.on('entityPositionUpdated', (data) => setEntities(prev => prev.map(ent => ent.id === data.entityId ? { ...ent, x: data.x, y: data.y } : ent)));
-    socket.on('entityStatusUpdated', (data) => setEntities(prev => prev.map(ent => ent.id === data.entityId ? { ...ent, ...data.updates } : ent)));
-    socket.on('entityCreated', (data) => setEntities(prev => { if (prev.find(e => e.id === data.entity.id)) return prev; return [...prev, data.entity]; }));
+    socket.on('entityPositionUpdated', (data: any) => setEntities(prev => prev.map(ent => ent.id === data.entityId ? { ...ent, x: data.x, y: data.y } : ent)));
+    socket.on('entityStatusUpdated', (data: any) => setEntities(prev => prev.map(ent => ent.id === data.entityId ? { ...ent, ...data.updates } : ent)));
+    socket.on('entityCreated', (data: any) => setEntities(prev => { if (prev.find(e => e.id === data.entity.id)) return prev; return [...prev, data.entity]; }));
     
-    socket.on('entityDeleted', (data) => {
+    socket.on('entityDeleted', (data: any) => {
         setEntities(prev => prev.filter(ent => ent.id !== data.entityId));
         if (statusSelectionId === data.entityId) setStatusSelectionId(null);
     });
 
-    socket.on('mapChanged', (data) => { setCurrentMap(data.mapUrl); setFogGrid(data.fogGrid); });
+    socket.on('mapChanged', (data: any) => { setCurrentMap(data.mapUrl); setFogGrid(data.fogGrid); });
     
-    socket.on('fogUpdated', (data) => {
+    socket.on('fogUpdated', (data: any) => {
       setFogGrid(prev => {
         if (!prev || !prev[data.y]) return prev;
         const newGrid = prev.map(row => [...row]);
@@ -318,22 +315,22 @@ function App() {
       });
     });
 
-    socket.on('fogGridSynced', (data) => setFogGrid(data.grid));
-    socket.on('initiativeUpdated', (data) => { setInitiativeList(data.list); setActiveTurnId(data.activeTurnId); });
-    socket.on('triggerAudio', (data) => { if (data.trackId === 'suspense') handlePlayMusic('suspense', false); });
+    socket.on('fogGridSynced', (data: any) => setFogGrid(data.grid));
+    socket.on('initiativeUpdated', (data: any) => { setInitiativeList(data.list); setActiveTurnId(data.activeTurnId); });
+    socket.on('triggerAudio', (data: any) => { if (data.trackId === 'suspense') handlePlayMusic('suspense', false); });
     
-    socket.on('mapStateUpdated', (data) => {
+    socket.on('mapStateUpdated', (data: any) => {
       if (role === 'PLAYER') {
           setMapOffset(data.offset);
           setMapScale(data.scale);
       }
     });
 
-    socket.on('globalBrightnessUpdated', (data) => {
+    socket.on('globalBrightnessUpdated', (data: any) => {
         setGlobalBrightness(data.brightness);
     });
 
-    socket.on('dmRequestRoll', (data) => {
+    socket.on('dmRequestRoll', (data: any) => {
         if (role === 'PLAYER') {
             setEntities(currentEntities => {
                 const myChar = currentEntities.find(e => e.name === playerName && e.id === data.targetId);
@@ -422,9 +419,7 @@ function App() {
       setShowBgDice(true);
   };
 
-  // --- NOVA FUNÇÃO QUE O CHAT VAI CHAMAR PARA APLICAR DANO ---
   const handleApplyDamageFromChat = (targetId: number, damageExpression: string) => {
-        // Exemplo: damageExpression pode ser "1d8+2"
         const rollMatch = damageExpression.match(/^(\d+)d(\d+)(\+(\d+))?$/i);
         let totalDano = 0;
         let rollString = "";
@@ -443,7 +438,6 @@ function App() {
             totalDano = sum + mod;
             rollString = `[${rolls.join(', ')}]${mod > 0 ? `+${mod}` : ''}`;
         } else {
-            // Se não for dado, tenta aplicar direto o valor numérico
             totalDano = parseInt(damageExpression) || 0;
             rollString = "Dano Fixo";
         }
@@ -460,7 +454,6 @@ function App() {
         }
   };
 
-  // --- LÓGICA DE ATAQUE VS CA ---
   const handleDiceComplete = (total: number, isSuccess: boolean, isCritical: boolean, isSecret: boolean) => {
       const senderName = role === 'DM' ? 'Mestre' : playerName;
       let resultMsg = isCritical ? (total >= 20 ? "CRÍTICO! ⚔️" : "FALHA CRÍTICA! 💀") : (isSuccess ? "SUCESSO! ✅" : "FALHA ❌");
@@ -469,11 +462,10 @@ function App() {
       let targetIdForDamage: number | null = null;
       let targetInfoMsg = "";
 
-      // Verifica se é um Ataque e se tem alvo
       if (targetEntityIds.length > 0 && diceContext.title.toLowerCase().includes("ataque")) {
           const target = entities.find(e => e.id === targetEntityIds[0]);
           if (target) {
-              if (total >= target.ac || (isCritical && total >= 20)) { // Crítico sempre acerta
+              if (total >= target.ac || (isCritical && total >= 20)) { 
                   resultMsg = `**ACERTOU!** ⚔️ (vs CA ${target.ac})`;
                   targetInfoMsg = `\n🎯 *${target.name}* foi atingido!`;
                   isAttackHit = true;
@@ -495,7 +487,6 @@ function App() {
               sender: senderName,
               isSecret: true,
               secretContent: secretText,
-              // Dados extras para o botão de dano
               targetId: targetIdForDamage,
               isHit: isAttackHit
           });
@@ -504,7 +495,6 @@ function App() {
               text: publicText, 
               type: 'roll', 
               sender: senderName,
-              // Dados extras para o botão de dano
               targetId: targetIdForDamage,
               isHit: isAttackHit
           });
@@ -539,9 +529,6 @@ function App() {
     const entity = entities.find(e => e.id === id);
     if (!entity) return;
     const newHp = Math.min(entity.maxHp, Math.max(0, entity.hp + change));
-    // Removemos os logs repetitivos de dano daqui, pois o botão do chat já fará isso mais bonito.
-    // if (change < 0) addLog({ text: `💥 ${entity.name} tomou ${Math.abs(change)} de dano.`, type: 'damage', sender: 'Sistema' });
-    // else if (change > 0) addLog({ text: `💖 ${entity.name} curou ${change} PV.`, type: 'info', sender: 'Sistema' });
     
     if (entity.hp > 0 && newHp <= 0) {
         addLog({ text: `☠️ **${entity.name} caiu inconsciente!**`, type: 'damage', sender: 'Sistema' });
@@ -997,7 +984,6 @@ function App() {
           />
       )}
 
-      {/* --- MODAL DE STATUS / LOOT --- */}
       {selectedStatusEntity && (
         <div 
           className="fixed z-50 bg-gray-900/95 border-2 border-cyan-400 p-4 rounded-xl shadow-[0_0_30px_rgba(34,211,238,0.3)] text-cyan-50 w-80 backdrop-blur-md animate-in fade-in zoom-in duration-100 font-mono transition-all ease-linear"
@@ -1193,19 +1179,14 @@ function App() {
               onSetGlobalBrightness={handleUpdateGlobalBrightness}
               onRequestRoll={handleDmRequestRoll} 
               onToggleVisibility={handleToggleVisibility} 
-              // PROPS DE AUDIO
               currentTrack={currentTrack}
               onPlayMusic={handlePlayMusic}
               onStopMusic={handleStopMusic}
               onPlaySFX={handlePlaySFX}
               audioVolume={audioVolume}
               onSetAudioVolume={setAudioVolume}
-              // NOVA PROP: RESETAR CÂMERA
               onResetView={handleResetView}
-              // NOVA PROP: DAR ITEM
               onGiveItem={handleGiveItem}
-              
-              // PASSANDO A FUNÇÃO DE DANO PARA A SIDEBAR (Que tem o Chat)
               onApplyDamageFromChat={handleApplyDamageFromChat}
             /> 
           : <SidebarPlayer 
@@ -1222,7 +1203,6 @@ function App() {
                   setFocusEntity(entity);
                   setTimeout(() => setFocusEntity(null), 100);
               }}
-              // PASSANDO A FUNÇÃO DE DANO
               onApplyDamageFromChat={handleApplyDamageFromChat}
             />
         }
